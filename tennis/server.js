@@ -46,10 +46,24 @@ wss.on('connection', (ws) => {
         return;
       }
 
-      room.n += 1;
+      // Assign player 1 or 2
+      let playerSlot = 1;
+      if (room.players.has(1) && room.players.get(1).readyState === WebSocket.OPEN) {
+        if (room.mode === 'pvp') {
+          playerSlot = 2;
+        } else {
+          // In AI mode, replace stale slot 1
+          const oldP1 = room.players.get(1);
+          if (oldP1 && oldP1 !== ws) {
+            try { oldP1.close(); } catch (_) {}
+          }
+          playerSlot = 1;
+        }
+      }
+
       ws.roomCode = code;
-      ws.player = room.n;
-      room.players.set(ws.player, ws);
+      ws.player = playerSlot;
+      room.players.set(playerSlot, ws);
       const joined = { type: 'joined', player: ws.player, code: code, mode: room.mode };
       send(ws, joined);
       send(room.tv, joined);
@@ -70,6 +84,18 @@ wss.on('connection', (ws) => {
         type: 'player_name',
         player: ws.player,
         name: cleanName
+      });
+      return;
+    }
+
+    if (message.type === 'ready' && Number.isFinite(ws.player) && ws.roomCode) {
+      const room = rooms.get(ws.roomCode);
+      if (!room || !room.tv || room.tv.readyState !== WebSocket.OPEN) return;
+      ws.isReady = true;
+      send(room.tv, {
+        type: 'player_ready',
+        player: ws.player,
+        name: ws.playerName || message.name || `Player ${ws.player}`
       });
       return;
     }

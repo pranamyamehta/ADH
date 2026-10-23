@@ -493,6 +493,13 @@
         }, 500);
       }
 
+      playerNameInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          btnConfirmName.click();
+        }
+      });
+
       btnConfirmName.addEventListener('click', () => {
         const val = playerNameInput.value.trim() || `Player ${playerNumber}`;
         playerName = val;
@@ -501,6 +508,12 @@
           socket.send(JSON.stringify({
             type: 'set_name',
             name: playerName,
+            player: playerNumber
+          }));
+          socket.send(JSON.stringify({
+            type: 'swing',
+            power: 0,
+            dir: '__name__:' + encodeURIComponent(playerName),
             player: playerNumber
           }));
         }
@@ -632,32 +645,69 @@
 
       btnMotion.addEventListener('click', async () => {
         if (!listening) {
-          if (typeof DeviceMotionEvent === 'undefined') {
-            alert('Motion sensors not supported on this browser.');
-            return;
-          }
-          if (typeof DeviceMotionEvent.requestPermission === 'function') {
+          if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
             try {
               const perm = await DeviceMotionEvent.requestPermission();
               if (perm !== 'granted') {
-                alert('Permission denied for motion sensors.');
-                return;
+                alert('Permission not granted for motion. You can also tap the circle to swing!');
               }
             } catch (err) {
-              alert('Could not request permission: ' + err);
-              return;
+              console.warn('Could not request permission:', err);
             }
           }
-          window.addEventListener('devicemotion', handleMotion);
+          if (typeof window.addEventListener === 'function') {
+            window.addEventListener('devicemotion', handleMotion);
+          }
           listening = true;
-          btnMotion.textContent = '🎾 Motion Racket Active';
-          btnMotion.style.background = 'rgba(255,255,255,0.1)';
+          btnMotion.textContent = '✅ Motion Enabled & Ready!';
+          btnMotion.style.background = 'rgba(199,243,107,0.2)';
+          btnMotion.style.color = '#c7f36b';
           btnMotion.disabled = true;
+
+          // Notify TV that motion sensor is enabled and player is ready!
+          if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({
+              type: 'ready',
+              player: playerNumber,
+              name: playerName
+            }));
+            socket.send(JSON.stringify({
+              type: 'swing',
+              power: 0,
+              dir: '__ready__:' + encodeURIComponent(playerName),
+              player: playerNumber
+            }));
+          }
+
+          if (currentMode === 'pvp') {
+            pvpWaitingBox.classList.remove('hidden');
+            pvpWaitingBox.innerHTML = `
+              <div style="font-size:1.1rem; font-weight:800; color:#c7f36b;">✅ Racket Ready!</div>
+              <p style="margin:4px 0 0; font-size:0.85rem;">Waiting for TV to start match...</p>
+            `;
+          }
         }
         if ('wakeLock' in navigator && !wakeLock) {
           navigator.wakeLock.request('screen').then(lock => { wakeLock = lock; }).catch(() => {});
         }
       });
+
+      // Tap-to-swing fallback on meter circle (useful for testing or simulator)
+      const swingMeterEl = document.getElementById('swing-meter');
+      if (swingMeterEl) {
+        swingMeterEl.addEventListener('click', () => {
+          if (!listening) {
+            btnMotion.click();
+          }
+          // Simulate swing motion
+          const simulatedEvent = {
+            acceleration: { x: 0, y: 32, z: 8 },
+            accelerationIncludingGravity: null,
+            rotationRate: { alpha: 45, beta: 0, gamma: 0 }
+          };
+          handleMotion(simulatedEvent);
+        });
+      }
 
       // Show Report Card on Phone
       function showReportCard(report) {

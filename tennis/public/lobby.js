@@ -1,7 +1,7 @@
-// tennis/public/lobby.js - Modern Lobby, Mode & Rounds Selection, Real Player Names, and Structured Report Card
+// tennis/public/lobby.js - TV-Optimized Lobby, D-Pad Remote Navigation, 1:1 QR Square, and Multi-Round Report Card
 (() => {
   let selectedMode = 'ai'; // 'ai' or 'pvp'
-  let targetRounds = 3;    // 1, 2, or 3 rounds (each round first to 7 points)
+  let targetRounds = 3;    // 1, 2, or 3 rounds (7 points per round)
   let p1Name = 'Player 1';
   let p2Name = 'Player 2';
 
@@ -10,11 +10,63 @@
   let ws = null;
   const phoneUrl = `${location.origin}/phone.html?code=${code}`;
   const connectedPlayers = new Set();
+  const readyPlayers = new Set(); // Tracks players who have enabled motion sensor
 
   window.roomCode = code;
   window.gameMode = selectedMode;
   window.targetRounds = targetRounds;
   window.playerNames = { p1: p1Name, p2: p2Name };
+
+  // D-Pad Navigation State
+  let currentScreen = 'setup'; // 'setup' | 'qr' | 'results'
+  let setupFocus = { row: 0, col: 0 }; // row 0: mode, row 1: rounds, row 2: button
+  let resultsFocus = 0; // 0: play again, 1: change mode
+
+  // Match start countdown timer
+  let countdownTimer = null;
+  let countdownRemaining = 3;
+
+  function cancelLobbyCountdown() {
+    if (countdownTimer) {
+      clearInterval(countdownTimer);
+      countdownTimer = null;
+    }
+    countdownRemaining = 3;
+    const cdEl = document.getElementById('lobby-countdown-banner');
+    if (cdEl) cdEl.innerHTML = '';
+  }
+
+  function startLobbyCountdown() {
+    if (countdownTimer) return; // already running
+    countdownRemaining = 3;
+    renderCountdownOnTV(countdownRemaining);
+
+    countdownTimer = setInterval(() => {
+      countdownRemaining--;
+      if (countdownRemaining > 0) {
+        renderCountdownOnTV(countdownRemaining);
+      } else {
+        clearInterval(countdownTimer);
+        countdownTimer = null;
+        startGame();
+      }
+    }, 1000);
+  }
+
+  function renderCountdownOnTV(sec) {
+    const cdEl = document.getElementById('lobby-countdown-banner');
+    if (!cdEl) return;
+    cdEl.innerHTML = `
+      <div style="background: rgba(199,243,107,0.18); border: 2px solid #c7f36b; border-radius: 14px; padding: 12px 18px; margin-top: 10px; animation: pulse 0.8s infinite alternate;">
+        <div style="font-size: 15px; font-weight: 800; color: #c7f36b; letter-spacing: 1.5px; text-transform: uppercase;">
+          🎾 RACKET ACTIVE & READY! GET INTO POSITION!
+        </div>
+        <div style="font-size: 34px; font-weight: 900; color: #ffffff; margin-top: 2px;">
+          Match Starting in ${sec}...
+        </div>
+      </div>
+    `;
+  }
 
   function connectSocket() {
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
@@ -34,17 +86,50 @@
         updateLobbyUI();
       } else if (m.type === 'player_left') {
         connectedPlayers.delete(m.player);
+        readyPlayers.delete(m.player);
+        cancelLobbyCountdown();
         updateLobbyUI();
       } else if (m.type === 'player_name') {
         if (m.player === 1) p1Name = m.name || 'Player 1';
         if (m.player === 2) p2Name = m.name || 'Player 2';
         window.playerNames = { p1: p1Name, p2: p2Name };
         updateLobbyUI();
-      }
-
-      // Forward swing to game engine
-      if (m.type === 'swing' && typeof window.onTennisSwing === 'function') {
-        window.onTennisSwing(m);
+      } else if (m.type === 'player_ready') {
+        readyPlayers.add(m.player);
+        if (m.name) {
+          if (m.player === 1) p1Name = m.name;
+          if (m.player === 2) p2Name = m.name;
+          window.playerNames = { p1: p1Name, p2: p2Name };
+        }
+        updateLobbyUI();
+      } else if (m.type === 'swing' && typeof m.dir === 'string') {
+        // Dual compatibility fallback for ready/name messages
+        if (m.dir.startsWith('__ready__:')) {
+          const rawName = m.dir.slice(10);
+          try {
+            const dec = decodeURIComponent(rawName);
+            if (m.player === 1) p1Name = dec;
+            if (m.player === 2) p2Name = dec;
+          } catch (_) {}
+          readyPlayers.add(m.player || 1);
+          window.playerNames = { p1: p1Name, p2: p2Name };
+          updateLobbyUI();
+          return;
+        }
+        if (m.dir.startsWith('__name__:')) {
+          const rawName = m.dir.slice(9);
+          try {
+            const dec = decodeURIComponent(rawName);
+            if (m.player === 1) p1Name = dec || 'Player 1';
+            if (m.player === 2) p2Name = dec || 'Player 2';
+          } catch (_) {}
+          window.playerNames = { p1: p1Name, p2: p2Name };
+          updateLobbyUI();
+          return;
+        }
+        if (typeof window.onTennisSwing === 'function') {
+          window.onTennisSwing(m);
+        }
       }
     });
 
@@ -53,7 +138,7 @@
     };
   }
 
-  // Inject styles for Lobby, Mode Select, and Report Card
+  // Inject CSS optimized for TV screens with zero scrolling
   function injectStyles() {
     if (document.getElementById('lobby-styles')) return;
     const style = document.createElement('style');
@@ -61,134 +146,209 @@
     style.textContent = `
       .glass-modal {
         position: fixed; inset: 0; z-index: 9999;
-        background: radial-gradient(circle at 50% 30%, #153828 0%, #081a13 100%);
+        width: 100vw; height: 100vh; max-height: 100vh;
+        overflow: hidden; /* Strict no scroll on TV */
+        background: radial-gradient(circle at 50% 35%, #153828 0%, #07160f 100%);
         color: #f5fff8; font-family: system-ui, -apple-system, sans-serif;
         display: flex; flex-direction: column; align-items: center; justify-content: center;
-        padding: 24px; box-sizing: border-box; text-align: center;
+        padding: 12px 24px; box-sizing: border-box; text-align: center;
+        user-select: none;
       }
       .mode-card {
         background: rgba(255,255,255,0.06); border: 2px solid rgba(199,243,107,0.25);
-        border-radius: 20px; padding: 22px 28px; width: 320px; cursor: pointer;
-        transition: all 0.2s ease; text-align: left;
+        border-radius: 16px; padding: 14px 20px; width: 280px; cursor: pointer;
+        transition: all 0.15s ease; text-align: left; box-sizing: border-box;
       }
-      .mode-card:hover, .mode-card.selected {
+      .mode-card.selected {
         background: rgba(199,243,107,0.14); border-color: #c7f36b;
-        transform: translateY(-4px); box-shadow: 0 12px 32px rgba(0,0,0,0.4);
       }
       .round-pill {
         background: rgba(255,255,255,0.08); border: 2px solid rgba(199,243,107,0.25);
-        border-radius: 14px; padding: 14px 22px; cursor: pointer; text-align: center;
-        flex: 1; min-width: 130px; transition: all 0.2s;
+        border-radius: 12px; padding: 10px 18px; cursor: pointer; text-align: center;
+        flex: 1; min-width: 120px; transition: all 0.15s; box-sizing: border-box;
       }
-      .round-pill:hover, .round-pill.selected {
+      .round-pill.selected {
         background: rgba(199,243,107,0.2); border-color: #c7f36b;
-        transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.3);
       }
       .mode-badge {
-        display: inline-block; padding: 4px 10px; border-radius: 8px;
-        font-size: 13px; font-weight: 700; letter-spacing: 0.5px;
-        background: #c7f36b; color: #0f271d; margin-bottom: 12px;
+        display: inline-block; padding: 3px 8px; border-radius: 6px;
+        font-size: 11px; font-weight: 700; letter-spacing: 0.5px;
+        background: #c7f36b; color: #0f271d; margin-bottom: 6px;
       }
       .btn-primary {
         background: #c7f36b; color: #0d251c; border: none; font-weight: 800;
-        font-size: 18px; padding: 14px 34px; border-radius: 14px; cursor: pointer;
-        transition: transform 0.15s, background 0.15s;
+        font-size: 16px; padding: 12px 30px; border-radius: 12px; cursor: pointer;
+        transition: transform 0.15s, background 0.15s, outline 0.15s;
+        box-sizing: border-box;
       }
-      .btn-primary:hover { background: #b8ea57; transform: scale(1.03); }
+      .btn-primary:hover { background: #b8ea57; }
       .btn-secondary {
         background: rgba(255,255,255,0.12); color: #f5fff8; border: 1px solid rgba(255,255,255,0.25);
-        font-weight: 600; font-size: 15px; padding: 10px 20px; border-radius: 12px; cursor: pointer;
+        font-weight: 600; font-size: 14px; padding: 8px 16px; border-radius: 10px; cursor: pointer;
+        transition: all 0.15s; box-sizing: border-box;
       }
-      .btn-secondary:hover { background: rgba(255,255,255,0.2); }
+
+      /* TV REMOTE D-PAD ACTIVE FOCUS RING */
+      .dpad-focus {
+        outline: 4px solid #c7f36b !important;
+        outline-offset: 3px !important;
+        transform: scale(1.04) !important;
+        box-shadow: 0 0 24px rgba(199, 243, 107, 0.75) !important;
+      }
+
+      /* PERFECT SQUARE QR CONTAINER */
+      .qr-card-box {
+        background: #ffffff;
+        padding: 12px;
+        border-radius: 16px;
+        box-shadow: 0 10px 28px rgba(0,0,0,0.5);
+        width: 204px;
+        height: 204px;
+        aspect-ratio: 1 / 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        box-sizing: border-box;
+      }
+      #qr {
+        width: 180px;
+        height: 180px;
+        aspect-ratio: 1 / 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #qr canvas, #qr img {
+        width: 180px !important;
+        height: 180px !important;
+        aspect-ratio: 1 / 1 !important;
+        display: block !important;
+        object-fit: contain !important;
+      }
+
+      /* RESULTS SCREEN TV LAYOUT */
       .report-grid {
-        display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 900px; width: 100%;
-        margin: 16px 0; text-align: left;
+        display: grid; grid-template-columns: 1fr 1fr; gap: 14px; max-width: 820px; width: 100%;
+        margin: 10px 0; text-align: left;
       }
       .report-card {
         background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15);
-        border-radius: 16px; padding: 18px 22px;
+        border-radius: 14px; padding: 12px 18px;
       }
       .metric-row {
         display: flex; justify-content: space-between; align-items: center;
-        padding: 7px 0; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 15px;
+        padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 13.5px;
       }
       .metric-val { font-weight: 700; font-variant-numeric: tabular-nums; }
       .score-table {
-        width: 100%; border-collapse: collapse; margin: 12px 0 16px;
+        width: 100%; border-collapse: collapse; margin: 8px 0 10px; font-size: 14px;
       }
       .score-table th, .score-table td {
-        padding: 8px 14px; text-align: center; border: 1px solid rgba(255,255,255,0.14);
+        padding: 5px 12px; text-align: center; border: 1px solid rgba(255,255,255,0.14);
       }
       .score-table th { background: rgba(255,255,255,0.08); color: #c7f36b; font-weight: 700; }
     `;
     document.head.appendChild(style);
   }
 
-  // Render Mode & Rounds Selection screen
+  // Update visual focus rings for TV remote
+  function updateFocusVisuals() {
+    // Remove focus class from all elements
+    document.querySelectorAll('.dpad-focus').forEach(el => el.classList.remove('dpad-focus'));
+
+    if (currentScreen === 'setup') {
+      let targetId = '';
+      if (setupFocus.row === 0) {
+        targetId = setupFocus.col === 0 ? 'mode-opt-ai' : 'mode-opt-pvp';
+      } else if (setupFocus.row === 1) {
+        if (setupFocus.col === 0) targetId = 'round-opt-1';
+        else if (setupFocus.col === 1) targetId = 'round-opt-2';
+        else targetId = 'round-opt-3';
+      } else if (setupFocus.row === 2) {
+        targetId = 'btn-confirm-setup';
+      }
+      const el = document.getElementById(targetId);
+      if (el) el.classList.add('dpad-focus');
+    } else if (currentScreen === 'qr') {
+      const btn = document.getElementById('btn-back-mode');
+      if (btn) btn.classList.add('dpad-focus');
+    } else if (currentScreen === 'results') {
+      const targetId = resultsFocus === 0 ? 'btn-play-again' : 'btn-change-mode';
+      const el = document.getElementById(targetId);
+      if (el) el.classList.add('dpad-focus');
+    }
+  }
+
+  // Screen 1: Mode & Rounds Selection (Compact for TV)
   function renderSetupScreen() {
+    currentScreen = 'setup';
     const lobby = document.getElementById('lobby');
     if (!lobby) return;
     lobby.className = 'glass-modal';
     lobby.style.display = 'flex';
 
     lobby.innerHTML = `
-      <div style="max-width: 820px; width: 100%;">
-        <div style="display:inline-flex;align-items:center;gap:10px;margin-bottom:8px;">
-          <span style="font-size:38px;">🎾</span>
-          <h1 style="font-size: 44px; margin: 0; font-weight: 900; letter-spacing: -1px;">PHONE TENNIS</h1>
+      <div style="max-width: 780px; width: 100%;">
+        <div style="display:inline-flex;align-items:center;gap:8px;margin-bottom:4px;">
+          <span style="font-size:30px;">🎾</span>
+          <h1 style="font-size: 32px; margin: 0; font-weight: 900; letter-spacing: -0.5px;">PHONE TENNIS</h1>
         </div>
-        <p style="font-size: 20px; color: #b7d6c5; margin: 0 0 28px;">Configure Match Format & Rules</p>
+        <p style="font-size: 15px; color: #b7d6c5; margin: 0 0 16px;">Use TV Remote [D-Pad] to select options and press [OK/Select]</p>
 
-        <!-- Mode Select -->
-        <div style="font-size: 15px; text-transform: uppercase; letter-spacing: 1.5px; color: #97c2a9; margin-bottom: 10px; font-weight: 700;">
+        <!-- Mode Select Row -->
+        <div style="font-size: 13px; text-transform: uppercase; letter-spacing: 1.5px; color: #97c2a9; margin-bottom: 8px; font-weight: 700;">
           Step 1: Choose Game Mode
         </div>
-        <div style="display:flex; justify-content:center; gap:20px; flex-wrap:wrap; margin-bottom: 26px;">
-          <div class="mode-card ${selectedMode === 'ai' ? 'selected' : ''}" id="mode-opt-ai">
+        <div style="display:flex; justify-content:center; gap:16px; flex-wrap:wrap; margin-bottom: 18px;">
+          <div class="mode-card ${selectedMode === 'ai' ? 'selected' : ''}" id="mode-opt-ai" tabindex="0">
             <span class="mode-badge">1 PLAYER</span>
-            <h2 style="margin: 0 0 6px; font-size: 24px;">Player vs AI</h2>
-            <p style="margin: 0; color: #a9cfb8; font-size: 14px; line-height: 1.4;">
-              1 Phone as Racket. Play against tactical AI bot with precise timing.
+            <h2 style="margin: 0 0 4px; font-size: 20px;">Player vs AI</h2>
+            <p style="margin: 0; color: #a9cfb8; font-size: 13px; line-height: 1.3;">
+              1 Phone Racket. Practice & rally against tactical AI.
             </p>
           </div>
 
-          <div class="mode-card ${selectedMode === 'pvp' ? 'selected' : ''}" id="mode-opt-pvp">
+          <div class="mode-card ${selectedMode === 'pvp' ? 'selected' : ''}" id="mode-opt-pvp" tabindex="0">
             <span class="mode-badge" style="background:#f3a65a;color:#2b1402;">2 PLAYERS</span>
-            <h2 style="margin: 0 0 6px; font-size: 24px;">Player vs Player (PvP)</h2>
-            <p style="margin: 0; color: #a9cfb8; font-size: 14px; line-height: 1.4;">
-              2 Phones as Rackets. Scan same QR code to battle head-to-head!
+            <h2 style="margin: 0 0 4px; font-size: 20px;">Player vs Player (PvP)</h2>
+            <p style="margin: 0; color: #a9cfb8; font-size: 13px; line-height: 1.3;">
+              2 Phone Rackets. Scan same QR to battle head-to-head!
             </p>
           </div>
         </div>
 
-        <!-- Rounds Select -->
-        <div style="font-size: 15px; text-transform: uppercase; letter-spacing: 1.5px; color: #97c2a9; margin-bottom: 10px; font-weight: 700;">
+        <!-- Rounds Select Row -->
+        <div style="font-size: 13px; text-transform: uppercase; letter-spacing: 1.5px; color: #97c2a9; margin-bottom: 8px; font-weight: 700;">
           Step 2: Choose Number of Rounds (7 Points per Round)
         </div>
-        <div style="display:flex; justify-content:center; gap:16px; max-width:680px; margin:0 auto 32px;">
-          <div class="round-pill ${targetRounds === 1 ? 'selected' : ''}" id="round-opt-1">
-            <div style="font-size:22px; font-weight:800; color:#c7f36b;">1 Round</div>
-            <div style="font-size:13px; color:#a2caa9; margin-top:2px;">Quick Match · 7 pts</div>
+        <div style="display:flex; justify-content:center; gap:14px; max-width:620px; margin:0 auto 20px;">
+          <div class="round-pill ${targetRounds === 1 ? 'selected' : ''}" id="round-opt-1" tabindex="0">
+            <div style="font-size:18px; font-weight:800; color:#c7f36b;">1 Round</div>
+            <div style="font-size:11px; color:#a2caa9; margin-top:2px;">Quick Match · 7 pts</div>
           </div>
-          <div class="round-pill ${targetRounds === 2 ? 'selected' : ''}" id="round-opt-2">
-            <div style="font-size:22px; font-weight:800; color:#c7f36b;">2 Rounds</div>
-            <div style="font-size:13px; color:#a2caa9; margin-top:2px;">Standard · 7 pts each</div>
+          <div class="round-pill ${targetRounds === 2 ? 'selected' : ''}" id="round-opt-2" tabindex="0">
+            <div style="font-size:18px; font-weight:800; color:#c7f36b;">2 Rounds</div>
+            <div style="font-size:11px; color:#a2caa9; margin-top:2px;">Standard · 7 pts each</div>
           </div>
-          <div class="round-pill ${targetRounds === 3 ? 'selected' : ''}" id="round-opt-3">
-            <div style="font-size:22px; font-weight:800; color:#c7f36b;">3 Rounds</div>
-            <div style="font-size:13px; color:#a2caa9; margin-top:2px;">Championship · 7 pts each</div>
+          <div class="round-pill ${targetRounds === 3 ? 'selected' : ''}" id="round-opt-3" tabindex="0">
+            <div style="font-size:18px; font-weight:800; color:#c7f36b;">3 Rounds</div>
+            <div style="font-size:11px; color:#a2caa9; margin-top:2px;">Championship · 7 pts each</div>
           </div>
         </div>
 
-        <button class="btn-primary" id="btn-confirm-setup">Continue to Lobby & QR Code →</button>
+        <!-- Action Button -->
+        <button class="btn-primary" id="btn-confirm-setup" tabindex="0">
+          Continue to Lobby & QR Code →
+        </button>
       </div>
     `;
 
-    document.getElementById('mode-opt-ai').onclick = () => { selectedMode = 'ai'; renderSetupScreen(); };
-    document.getElementById('mode-opt-pvp').onclick = () => { selectedMode = 'pvp'; renderSetupScreen(); };
-    document.getElementById('round-opt-1').onclick = () => { targetRounds = 1; renderSetupScreen(); };
-    document.getElementById('round-opt-2').onclick = () => { targetRounds = 2; renderSetupScreen(); };
-    document.getElementById('round-opt-3').onclick = () => { targetRounds = 3; renderSetupScreen(); };
+    document.getElementById('mode-opt-ai').onclick = () => { selectedMode = 'ai'; setupFocus.row = 0; setupFocus.col = 0; renderSetupScreen(); };
+    document.getElementById('mode-opt-pvp').onclick = () => { selectedMode = 'pvp'; setupFocus.row = 0; setupFocus.col = 1; renderSetupScreen(); };
+    document.getElementById('round-opt-1').onclick = () => { targetRounds = 1; setupFocus.row = 1; setupFocus.col = 0; renderSetupScreen(); };
+    document.getElementById('round-opt-2').onclick = () => { targetRounds = 2; setupFocus.row = 1; setupFocus.col = 1; renderSetupScreen(); };
+    document.getElementById('round-opt-3').onclick = () => { targetRounds = 3; setupFocus.row = 1; setupFocus.col = 2; renderSetupScreen(); };
 
     document.getElementById('btn-confirm-setup').onclick = () => {
       window.gameMode = selectedMode;
@@ -199,125 +359,169 @@
       renderLobbyWithQR();
     };
 
-    window.onkeydown = e => {
-      if (lobby.style.display !== 'none' && !document.getElementById('qr-container')) {
-        if (e.key === '1') { targetRounds = 1; renderSetupScreen(); }
-        if (e.key === '2') { targetRounds = 2; renderSetupScreen(); }
-        if (e.key === '3') { targetRounds = 3; renderSetupScreen(); }
-        if (e.key === 'Enter') document.getElementById('btn-confirm-setup').click();
-      }
-    };
+    updateFocusVisuals();
   }
 
-  // Render Lobby with QR Code
+  // Screen 2: Lobby with Square QR Code (Compact for TV)
   function renderLobbyWithQR() {
+    currentScreen = 'qr';
     const lobby = document.getElementById('lobby');
     if (!lobby) return;
     lobby.className = 'glass-modal';
     lobby.style.display = 'flex';
 
     lobby.innerHTML = `
-      <div id="qr-container" style="max-width: 850px; width: 100%; display:flex; flex-direction:column; align-items:center;">
-        <div style="display:flex; justify-content:space-between; align-items:center; width:100%; margin-bottom:12px;">
-          <button class="btn-secondary" id="btn-back-mode" style="padding:8px 16px; font-size:14px;">← Change Format</button>
-          <span style="font-size:14px; font-weight:700; color:#c7f36b; background:rgba(199,243,107,0.12); padding:6px 14px; border-radius:100px;">
-            ${selectedMode === 'pvp' ? '👥 2P PLAYER VS PLAYER' : '👤 1P VS AI'} &nbsp;·&nbsp; ${targetRounds} ROUND${targetRounds > 1 ? 'S' : ''} (7 PTS EACH)
+      <div id="qr-container" style="max-width: 780px; width: 100%; display:flex; flex-direction:column; align-items:center;">
+        <div style="display:flex; justify-content:space-between; align-items:center; width:100%; margin-bottom:8px;">
+          <button class="btn-secondary" id="btn-back-mode" tabindex="0">← Change Format [Press OK/Back]</button>
+          <span style="font-size:13px; font-weight:700; color:#c7f36b; background:rgba(199,243,107,0.12); padding:5px 12px; border-radius:100px;">
+            ${selectedMode === 'pvp' ? '👥 2P PLAYER VS PLAYER' : '👤 1P VS AI'} &nbsp;·&nbsp; ${targetRounds} ROUND${targetRounds > 1 ? 'S' : ''}
           </span>
-          <div style="width:100px;"></div>
+          <div style="width:80px;"></div>
         </div>
 
-        <h1 style="font-size: 36px; margin: 0 0 6px; font-weight: 800;">Turn Your Phone Into a Racket</h1>
-        <p style="font-size: 17px; color: #c5e3d1; margin: 0 0 18px;">
-          ${selectedMode === 'pvp' ? 'Both players scan this same QR code or enter code on their phone' : 'Scan to connect phone as Player 1'}
+        <h1 style="font-size: 28px; margin: 0 0 4px; font-weight: 800;">Scan with Phone to Connect Racket</h1>
+        <p style="font-size: 14px; color: #c5e3d1; margin: 0 0 14px;">
+          ${selectedMode === 'pvp' ? 'Both players scan this same QR code on their phones' : 'Scan to connect phone as Player 1'}
         </p>
 
-        <div style="display:flex; gap:32px; align-items:center; justify-content:center; flex-wrap:wrap; margin-bottom: 20px;">
-          <div style="background:#fff; padding:16px; border-radius:18px; box-shadow:0 12px 30px rgba(0,0,0,0.5);">
+        <div style="display:flex; gap:28px; align-items:center; justify-content:center; flex-wrap:wrap; margin-bottom: 12px;">
+          <!-- 1:1 SQUARE QR CARD -->
+          <div class="qr-card-box">
             <div id="qr"></div>
           </div>
 
-          <div style="text-align:left; max-width:320px;">
-            <div style="font-size:13px; text-transform:uppercase; letter-spacing:1px; color:#95bfa6;">Room Code</div>
-            <div style="font-size: 50px; font-weight: 900; letter-spacing: 6px; color: #c7f36b; margin: 2px 0 10px;">${code}</div>
-            <div style="font-size: 15px; color: #d0edd9; line-height: 1.4;">
-              Open <strong style="color:#fff;">${location.host}/phone.html</strong><br>
-              Enter code <strong>${code}</strong> & set your player name!
+          <div style="text-align:left; max-width:300px;">
+            <div style="font-size:12px; text-transform:uppercase; letter-spacing:1px; color:#95bfa6;">Room Code</div>
+            <div style="font-size: 44px; font-weight: 900; letter-spacing: 5px; color: #c7f36b; margin: 0 0 6px;">${code}</div>
+            <div style="font-size: 14px; color: #d0edd9; line-height: 1.35;">
+              Or go to <strong style="color:#fff;">${location.host}/phone.html</strong><br>
+              Enter room <strong style="color:#c7f36b;">${code}</strong> on phone
             </div>
           </div>
         </div>
 
         <!-- Connection indicators -->
-        <div id="player-status-box" style="width:100%; max-width:580px; margin-top:6px;"></div>
+        <div id="player-status-box" style="width:100%; max-width:560px; margin-top:4px;"></div>
       </div>
     `;
 
     document.getElementById('btn-back-mode').onclick = () => {
+      cancelLobbyCountdown();
       renderSetupScreen();
     };
 
-    // Generate QR
+    // Render QR Code as exact square
     const qrDiv = document.getElementById('qr');
     if (qrDiv) {
       qrDiv.innerHTML = '';
-      new QRCode(qrDiv, { text: phoneUrl, width: 210, height: 210 });
+      new QRCode(qrDiv, {
+        text: phoneUrl,
+        width: 180,
+        height: 180,
+        correctLevel: QRCode.CorrectLevel.M
+      });
     }
 
     updateLobbyUI();
+    updateFocusVisuals();
   }
 
-  // Update connection status indicators with custom names
+  // Update connection status indicators
   function updateLobbyUI() {
     const statusBox = document.getElementById('player-status-box');
     if (!statusBox) return;
 
     if (selectedMode === 'ai') {
       const p1Connected = connectedPlayers.has(1) || connectedPlayers.size > 0;
+      const p1Ready = readyPlayers.has(1) || (connectedPlayers.size > 0 && readyPlayers.size > 0);
+
       statusBox.innerHTML = `
-        <div style="background:rgba(255,255,255,0.07); border-radius:14px; padding:14px 20px; display:flex; justify-content:space-between; align-items:center;">
-          <span style="font-size:18px; font-weight:600;">🎾 ${p1Name} (Player 1)</span>
-          <span style="font-size:15px; font-weight:700; color:${p1Connected ? '#c7f36b' : '#f5fff888'};">
-            ${p1Connected ? '✅ Ready & Registered' : '⏳ Waiting for phone scan...'}
+        <div style="background:rgba(255,255,255,0.07); border-radius:14px; padding:12px 18px; display:flex; justify-content:space-between; align-items:center;">
+          <div style="text-align:left;">
+            <div style="font-size:17px; font-weight:800; color:#c7f36b;">🎾 ${p1Name}</div>
+            <div style="font-size:12px; color:#a3cca9;">Player 1 (Green Baseline)</div>
+          </div>
+          <span style="font-size:13.5px; font-weight:700; padding:6px 14px; border-radius:8px; background:${p1Ready ? 'rgba(199,243,107,0.18)' : (p1Connected ? 'rgba(255,224,102,0.18)' : 'rgba(255,255,255,0.06)')}; color:${p1Ready ? '#c7f36b' : (p1Connected ? '#ffe066' : '#94baa1')};">
+            ${p1Ready ? '✅ Motion Ready & Active' : (p1Connected ? '⏳ Enter name & tap "Enable Motion"...' : '⏳ Waiting for phone scan...')}
           </span>
         </div>
+        <div id="lobby-countdown-banner" style="margin-top:10px;"></div>
       `;
 
-      if (p1Connected) {
-        statusBox.innerHTML += `<p style="color:#c7f36b; font-weight:700; margin-top:14px; font-size:20px;">${p1Name} ready! Starting Round 1 in 1s...</p>`;
-        setTimeout(() => {
-          startGame();
-        }, 1200);
+      if (p1Ready) {
+        startLobbyCountdown();
+      } else {
+        cancelLobbyCountdown();
+        const cdEl = document.getElementById('lobby-countdown-banner');
+        if (cdEl) {
+          if (p1Connected) {
+            cdEl.innerHTML = `
+              <div style="background:rgba(255,224,102,0.1); border:1px dashed #ffe066; border-radius:10px; padding:10px 14px; color:#ffe066; font-size:13px; font-weight:600;">
+                📱 Phone connected! Please enter your name and tap <strong>"Tap to Enable Motion Racket"</strong> on your phone.
+              </div>
+            `;
+          } else {
+            cdEl.innerHTML = `
+              <div style="color:#8bb698; font-size:12.5px;">
+                Scan QR code with phone camera to connect as racket controller.
+              </div>
+            `;
+          }
+        }
       }
     } else {
       // PvP mode
-      const p1 = connectedPlayers.has(1);
-      const p2 = connectedPlayers.has(2) || connectedPlayers.size >= 2;
+      const p1Connected = connectedPlayers.has(1);
+      const p1Ready = readyPlayers.has(1);
+      const p2Connected = connectedPlayers.has(2) || connectedPlayers.size >= 2;
+      const p2Ready = readyPlayers.has(2);
+
       statusBox.innerHTML = `
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
-          <div style="background:rgba(255,255,255,0.07); border-radius:12px; padding:12px 16px;">
-            <div style="font-size:16px; font-weight:700; color:#c7f36b;">🟢 ${p1Name}</div>
-            <div style="font-size:14px; margin-top:4px; color:${p1 ? '#c7f36b' : '#9bbba7'};">
-              ${p1 ? '✅ Ready!' : '⏳ Scan QR to join'}
-            </div>
+          <!-- Player 1 -->
+          <div style="background:rgba(255,255,255,0.07); border-radius:12px; padding:12px 16px; text-align:left;">
+            <div style="font-size:16px; font-weight:800; color:#c7f36b;">🟢 ${p1Name}</div>
+            <div style="font-size:11.5px; color:#a3cca9; margin-bottom:6px;">Player 1 (Bottom Baseline)</div>
+            <span style="font-size:12.5px; font-weight:700; color:${p1Ready ? '#c7f36b' : (p1Connected ? '#ffe066' : '#94baa1')};">
+              ${p1Ready ? '✅ Motion Ready' : (p1Connected ? '⏳ Tap "Enable Motion"...' : '⏳ Scan QR to join')}
+            </span>
           </div>
-          <div style="background:rgba(255,255,255,0.07); border-radius:12px; padding:12px 16px;">
-            <div style="font-size:16px; font-weight:700; color:#f3a65a;">🟠 ${p2Name}</div>
-            <div style="font-size:14px; margin-top:4px; color:${p2 ? '#c7f36b' : '#9bbba7'};">
-              ${p2 ? '✅ Ready!' : '⏳ Scan SAME QR'}
-            </div>
+
+          <!-- Player 2 -->
+          <div style="background:rgba(255,255,255,0.07); border-radius:12px; padding:12px 16px; text-align:left;">
+            <div style="font-size:16px; font-weight:800; color:#f3a65a;">🟠 ${p2Name}</div>
+            <div style="font-size:11.5px; color:#d4af86; margin-bottom:6px;">Player 2 (Top Baseline)</div>
+            <span style="font-size:12.5px; font-weight:700; color:${p2Ready ? '#c7f36b' : (p2Connected ? '#ffe066' : '#94baa1')};">
+              ${p2Ready ? '✅ Motion Ready' : (p2Connected ? '⏳ Tap "Enable Motion"...' : '⏳ Scan SAME QR')}
+            </span>
           </div>
         </div>
+        <div id="lobby-countdown-banner" style="margin-top:10px;"></div>
       `;
 
-      if (connectedPlayers.size >= 2) {
-        statusBox.innerHTML += `<p style="color:#c7f36b; font-weight:700; margin-top:14px; font-size:20px;">Both players ready! Match starting in 1s...</p>`;
-        setTimeout(() => {
-          startGame();
-        }, 1500);
+      if (p1Ready && p2Ready) {
+        startLobbyCountdown();
+      } else {
+        cancelLobbyCountdown();
+        const cdEl = document.getElementById('lobby-countdown-banner');
+        if (cdEl) {
+          if (!p1Connected && !p2Connected) {
+            cdEl.innerHTML = `<div style="color:#8bb698; font-size:12.5px;">Both players scan the SAME QR code on TV with phone camera.</div>`;
+          } else if (p1Ready && !p2Ready) {
+            cdEl.innerHTML = `<div style="color:#ffe066; font-size:13px; font-weight:600;">🟢 ${p1Name} ready! Waiting for Player 2 to scan QR and enable motion sensor...</div>`;
+          } else if (!p1Ready && p2Ready) {
+            cdEl.innerHTML = `<div style="color:#ffe066; font-size:13px; font-weight:600;">🟠 ${p2Name} ready! Waiting for Player 1 to enable motion sensor...</div>`;
+          } else {
+            cdEl.innerHTML = `<div style="color:#ffe066; font-size:13px; font-weight:600;">⏳ Please enter names and tap "Enable Motion Racket" on both phones.</div>`;
+          }
+        }
       }
     }
   }
 
   function startGame() {
+    currentScreen = 'game';
     const lobby = document.getElementById('lobby');
     if (lobby) lobby.style.display = 'none';
     if (window.onGameStart) {
@@ -330,8 +534,10 @@
     }
   }
 
-  // Structured Multi-Round Results & Fitness Report Card
+  // Screen 3: Results & Structured Multi-Round Report Card (Compact for TV)
   window.showResults = function (report) {
+    currentScreen = 'results';
+    resultsFocus = 0;
     const r = document.getElementById('results');
     if (!r) return;
     injectStyles();
@@ -339,7 +545,6 @@
     r.className = 'glass-modal';
     r.style.display = 'flex';
 
-    // Broadcast report to connected phones so their report card appears simultaneously!
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'report', report }));
     }
@@ -350,7 +555,6 @@
     const nameP1 = p1.name || p1Name;
     const nameP2 = p2.name || (isPvp ? p2Name : 'AI Nadal');
 
-    // Build Round-by-Round HTML table
     let roundsHtml = '';
     if (report.rounds && report.rounds.length > 0) {
       roundsHtml = `
@@ -367,8 +571,8 @@
             ${report.rounds.map(rd => `
               <tr>
                 <td>Round ${rd.round}</td>
-                <td><strong style="font-size:18px;">${rd.p1Score}</strong></td>
-                <td><strong style="font-size:18px;">${rd.p2Score}</strong></td>
+                <td><strong style="font-size:16px;">${rd.p1Score}</strong></td>
+                <td><strong style="font-size:16px;">${rd.p2Score}</strong></td>
                 <td style="color:#c7f36b; font-weight:700;">${rd.winner}</td>
               </tr>
             `).join('')}
@@ -378,64 +582,58 @@
     }
 
     r.innerHTML = `
-      <div style="max-width: 960px; width: 100%;">
-        <div style="font-size:40px; margin-bottom: 2px;">🏆</div>
-        <h1 style="font-size: 40px; margin: 0 0 4px; font-weight: 900; color: #fff;">
+      <div style="max-width: 860px; width: 100%;">
+        <div style="font-size:32px; margin-bottom: 2px;">🏆</div>
+        <h1 style="font-size: 30px; margin: 0 0 2px; font-weight: 900; color: #fff;">
           ${report.winner ? `${report.winner.toUpperCase()} WINS THE MATCH!` : 'MATCH COMPLETED!'}
         </h1>
-        <p style="font-size: 20px; color: #c7f36b; font-weight: 700; margin: 0 0 10px;">
+        <p style="font-size: 17px; color: #c7f36b; font-weight: 700; margin: 0 0 8px;">
           SETS WON: ${nameP1} (${report.roundsWon?.p1 || 0}) — (${report.roundsWon?.p2 || 0}) ${nameP2}
         </p>
 
         <!-- Round by round table -->
-        <div style="max-width:680px; margin:0 auto;">
+        <div style="max-width:580px; margin:0 auto;">
           ${roundsHtml}
         </div>
-
-        <p style="font-size: 14px; color: #a4ceb5; margin: 0 0 14px;">
-          ⏱️ Match Duration: ${report.durationSeconds || 0}s &nbsp;·&nbsp; 🔥 Longest Rally: ${report.longestRally || 0} shots
-        </p>
 
         <!-- Side by side player cards -->
         <div class="report-grid">
           <!-- Player 1 Card -->
           <div class="report-card" style="border-left: 4px solid #c7f36b;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-              <h2 style="margin:0; font-size:20px; color:#c7f36b;">${nameP1} (Green)</h2>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+              <h2 style="margin:0; font-size:17px; color:#c7f36b;">${nameP1} (Green)</h2>
               <span class="mode-badge" style="margin:0; background:rgba(199,243,107,0.18); color:#c7f36b;">${p1.intensity || 'Active'}</span>
             </div>
             <div class="metric-row"><span>🔥 Active Calories</span><span class="metric-val" style="color:#c7f36b;">~${p1.calories || 0} kcal</span></div>
             <div class="metric-row"><span>🎾 Total Swings</span><span class="metric-val">${p1.swings || 0} (${p1.forehands || 0}F / ${p1.backhands || 0}B)</span></div>
             <div class="metric-row"><span>🎯 Hit Accuracy</span><span class="metric-val">${p1.accuracy || 0}% (${p1.hits || 0} hits)</span></div>
-            <div class="metric-row"><span>⚡ Peak Swing Speed</span><span class="metric-val">${p1.peakSpeedKmh || 0} km/h (${p1.peakPower || 0}%)</span></div>
-            <div class="metric-row"><span>📊 Avg Swing Power</span><span class="metric-val">${p1.avgPower || 0}%</span></div>
+            <div class="metric-row"><span>⚡ Peak Swing Speed</span><span class="metric-val">${p1.peakSpeedKmh || 0} km/h</span></div>
           </div>
 
           <!-- Player 2 / AI Card -->
           <div class="report-card" style="border-left: 4px solid #f3a65a;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-              <h2 style="margin:0; font-size:20px; color:#f3a65a;">${nameP2} (Orange)</h2>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+              <h2 style="margin:0; font-size:17px; color:#f3a65a;">${nameP2} (Orange)</h2>
               <span class="mode-badge" style="margin:0; background:rgba(243,166,90,0.18); color:#f3a65a;">${p2.intensity || 'Cardio'}</span>
             </div>
             <div class="metric-row"><span>🔥 Active Calories</span><span class="metric-val" style="color:#f3a65a;">~${p2.calories || 0} kcal</span></div>
             <div class="metric-row"><span>🎾 Total Swings</span><span class="metric-val">${p2.swings || 0} (${p2.forehands || 0}F / ${p2.backhands || 0}B)</span></div>
             <div class="metric-row"><span>🎯 Hit Accuracy</span><span class="metric-val">${p2.accuracy || 0}% (${p2.hits || 0} hits)</span></div>
-            <div class="metric-row"><span>⚡ Peak Swing Speed</span><span class="metric-val">${p2.peakSpeedKmh || 0} km/h (${p2.peakPower || 0}%)</span></div>
-            <div class="metric-row"><span>📊 Avg Swing Power</span><span class="metric-val">${p2.avgPower || 0}%</span></div>
+            <div class="metric-row"><span>⚡ Peak Swing Speed</span><span class="metric-val">${p2.peakSpeedKmh || 0} km/h</span></div>
           </div>
         </div>
 
-        <!-- TV-ONLY ACTION BUTTONS -->
-        <div style="display:flex; gap:16px; justify-content:center; align-items:center; margin-top:16px;">
-          <button class="btn-primary" id="btn-play-again" style="font-size:18px; padding:14px 32px;">
+        <!-- TV-ONLY ACTION BUTTONS (D-PAD NAVIGABLE) -->
+        <div style="display:flex; gap:16px; justify-content:center; align-items:center; margin-top:12px;">
+          <button class="btn-primary" id="btn-play-again" tabindex="0">
             🔄 Play Again / Retry Match
           </button>
-          <button class="btn-secondary" id="btn-change-mode" style="font-size:16px; padding:12px 24px;">
+          <button class="btn-secondary" id="btn-change-mode" tabindex="0">
             🎮 Switch Mode & Rounds
           </button>
         </div>
-        <p style="color:#8db79f; font-size:13px; margin-top:10px;">
-          Official fitness certificates are downloadable as PDF on connected phones.
+        <p style="color:#8db79f; font-size:12px; margin-top:8px;">
+          Use remote [Left/Right] and press [OK/Select] to choose action.
         </p>
       </div>
     `;
@@ -456,16 +654,86 @@
     };
 
     document.getElementById('btn-change-mode').onclick = () => {
+      cancelLobbyCountdown();
       r.style.display = 'none';
       renderSetupScreen();
     };
 
-    window.onkeydown = e => {
-      if (r.style.display !== 'none' && (e.key === 'Enter' || e.key === ' ')) {
-        document.getElementById('btn-play-again').click();
-      }
-    };
+    updateFocusVisuals();
   };
+
+  // FULL TV REMOTE D-PAD NAVIGATION HANDLER
+  window.addEventListener('keydown', e => {
+    const key = e.key;
+    const code = e.keyCode;
+
+    // Check if key is a navigation key
+    const isUp = key === 'ArrowUp' || code === 38;
+    const isDown = key === 'ArrowDown' || code === 40;
+    const isLeft = key === 'ArrowLeft' || code === 37;
+    const isRight = key === 'ArrowRight' || code === 39;
+    const isEnter = key === 'Enter' || key === 'Select' || key === ' ' || code === 13 || code === 18 || code === 32;
+    const isBack = key === 'Escape' || key === 'Backspace' || key === 'GoBack' || code === 27 || code === 8 || code === 461 || code === 10009;
+
+    if (currentScreen === 'setup') {
+      if (isDown) {
+        e.preventDefault();
+        setupFocus.row = Math.min(setupFocus.row + 1, 2);
+        updateFocusVisuals();
+      } else if (isUp) {
+        e.preventDefault();
+        setupFocus.row = Math.max(setupFocus.row - 1, 0);
+        updateFocusVisuals();
+      } else if (isLeft) {
+        e.preventDefault();
+        setupFocus.col = Math.max(setupFocus.col - 1, 0);
+        updateFocusVisuals();
+      } else if (isRight) {
+        e.preventDefault();
+        const maxCol = setupFocus.row === 0 ? 1 : (setupFocus.row === 1 ? 2 : 0);
+        setupFocus.col = Math.min(setupFocus.col + 1, maxCol);
+        updateFocusVisuals();
+      } else if (isEnter) {
+        e.preventDefault();
+        // Activate focused element
+        if (setupFocus.row === 0) {
+          selectedMode = setupFocus.col === 0 ? 'ai' : 'pvp';
+          renderSetupScreen();
+        } else if (setupFocus.row === 1) {
+          targetRounds = setupFocus.col + 1;
+          renderSetupScreen();
+        } else if (setupFocus.row === 2) {
+          const btn = document.getElementById('btn-confirm-setup');
+          if (btn) btn.click();
+        }
+      }
+    } else if (currentScreen === 'qr') {
+      if (isEnter || isBack) {
+        e.preventDefault();
+        const btn = document.getElementById('btn-back-mode');
+        if (btn) btn.click();
+      }
+    } else if (currentScreen === 'results') {
+      if (isLeft) {
+        e.preventDefault();
+        resultsFocus = 0;
+        updateFocusVisuals();
+      } else if (isRight) {
+        e.preventDefault();
+        resultsFocus = 1;
+        updateFocusVisuals();
+      } else if (isEnter) {
+        e.preventDefault();
+        if (resultsFocus === 0) {
+          const btn = document.getElementById('btn-play-again');
+          if (btn) btn.click();
+        } else {
+          const btn = document.getElementById('btn-change-mode');
+          if (btn) btn.click();
+        }
+      }
+    }
+  });
 
   // Boot up
   function init() {
