@@ -187,6 +187,15 @@ The `android/` directory contains the native Android / Fire OS wrapper app that 
    adb install -r app/build/outputs/apk/debug/app-debug.apk
    ```
 
+### Pre-built APK for Judges
+
+A ready-to-install debug APK is published on GitHub Releases:
+- **[Download app-debug.apk (v1.0.0)](https://github.com/pranamyamehta/ADH/releases/download/v1.0.0/app-debug.apk)**
+- Install directly without building from source:
+  ```bash
+  adb install -r app-debug.apk
+  ```
+
 ---
 
 ## Project Structure
