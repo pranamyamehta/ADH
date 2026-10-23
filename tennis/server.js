@@ -34,22 +34,23 @@ wss.on('connection', (ws) => {
       const previous = rooms.get(code);
       if (previous && previous.tv !== ws) previous.tv.close();
       ws.roomCode = code;
-      rooms.set(code, { tv: ws, n: 0 });
+      rooms.set(code, { tv: ws, players: new Map(), n: 0, mode: message.mode || 'ai' });
       return;
     }
 
     if (message.type === 'join') {
       const code = String(message.code).toUpperCase();
       const room = rooms.get(code);
-      if (!room || room.tv.readyState !== WebSocket.OPEN) {
-        send(ws, { type: 'error' });
+      if (!room || !room.tv || room.tv.readyState !== WebSocket.OPEN) {
+        send(ws, { type: 'error', reason: 'Room not found or TV is disconnected' });
         return;
       }
 
       room.n += 1;
       ws.roomCode = code;
       ws.player = room.n;
-      const joined = { type: 'joined', player: ws.player };
+      room.players.set(ws.player, ws);
+      const joined = { type: 'joined', player: ws.player, code: code, mode: room.mode };
       send(ws, joined);
       send(room.tv, joined);
       return;
@@ -64,12 +65,37 @@ wss.on('connection', (ws) => {
         dir: message.dir,
         player: ws.player,
       });
+      return;
+    }
+
+    // Messages from TV (e.g. report, restart, mode_change) broadcast to all connected players
+    if (ws.roomCode) {
+      const room = rooms.get(ws.roomCode);
+      if (room && room.tv === ws) {
+        if (message.type === 'set_mode') {
+          room.mode = message.mode;
+        }
+        for (const playerWs of room.players.values()) {
+          send(playerWs, message);
+        }
+      }
     }
   });
 
   ws.on('close', () => {
-    if (ws.roomCode && rooms.get(ws.roomCode)?.tv === ws) {
-      rooms.delete(ws.roomCode);
+    if (ws.roomCode) {
+      const room = rooms.get(ws.roomCode);
+      if (room) {
+        if (room.tv === ws) {
+          for (const playerWs of room.players.values()) {
+            send(playerWs, { type: 'error', reason: 'TV Host disconnected' });
+          }
+          rooms.delete(ws.roomCode);
+        } else if (ws.player) {
+          room.players.delete(ws.player);
+          send(room.tv, { type: 'player_left', player: ws.player });
+        }
+      }
     }
   });
 });

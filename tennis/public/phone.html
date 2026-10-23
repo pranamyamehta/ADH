@@ -2,195 +2,697 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <meta name="theme-color" content="#10251d">
-  <title>Tennis Controller</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0d251c">
+  <title>Tennis Controller & Racket</title>
+  <!-- jsPDF for downloading fitness report card -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <!-- html5-qrcode for built-in QR scanning -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
   <style>
-    :root { color-scheme: dark; font-family: system-ui, -apple-system, sans-serif; }
-    * { box-sizing: border-box; }
-    body { min-height: 100vh; margin: 0; padding: 24px; background: #10251d; color: #f5fff8; display: flex; justify-content: center; }
-    main { width: min(100%, 520px); display: flex; flex-direction: column; gap: 18px; }
-    h1 { margin: 0; font-size: 1.8rem; }
-    #status { min-height: 1.5em; margin: 0; color: #b9ddc5; }
-    #start { min-height: 180px; border: 0; border-radius: 28px; background: #c7f36b; color: #17220e; font: 700 1.65rem system-ui, sans-serif; touch-action: manipulation; }
-    #start:active { transform: scale(.985); background: #b3e751; }
-    #start:disabled { opacity: .8; }
-    .readout { padding: 16px; border-radius: 16px; background: #1b382c; }
-    .readout strong { font-size: 1.8rem; font-variant-numeric: tabular-nums; }
-    #log { flex: 1; min-height: 150px; max-height: 32vh; overflow: auto; margin: 0; padding: 12px 12px 12px 34px; border-radius: 16px; background: #1b382c; }
-    #log li { padding: 5px 0; color: #d9eee0; font-variant-numeric: tabular-nums; }
-    .hint { margin: 0; color: #a9c4b2; font-size: .9rem; }
+    :root {
+      color-scheme: dark;
+      font-family: system-ui, -apple-system, sans-serif;
+      --bg: #0b2219;
+      --card-bg: rgba(255, 255, 255, 0.07);
+      --border: rgba(255, 255, 255, 0.14);
+      --accent-p1: #c7f36b;
+      --accent-p2: #f3a65a;
+      --text: #f5fff8;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      padding: 16px;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      align-items: stretch;
+    }
+    main {
+      width: 100%;
+      max-width: 480px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .screen { display: flex; flex-direction: column; gap: 16px; }
+    .hidden { display: none !important; }
+
+    /* Cards and Inputs */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 20px;
+      text-align: center;
+    }
+    .btn {
+      width: 100%;
+      border: none;
+      border-radius: 16px;
+      padding: 16px;
+      font-size: 1.1rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: transform 0.1s, opacity 0.15s;
+    }
+    .btn:active { transform: scale(0.98); }
+    .btn-p1 { background: var(--accent-p1); color: #0d251c; }
+    .btn-secondary { background: rgba(255,255,255,0.12); color: #fff; border: 1px solid var(--border); }
+
+    /* Code Input */
+    .code-input {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.35);
+      border: 2px solid rgba(199, 243, 107, 0.4);
+      border-radius: 14px;
+      font-size: 2.4rem;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 10px;
+      text-align: center;
+      color: var(--accent-p1);
+      padding: 12px;
+      margin: 12px 0 16px;
+      outline: none;
+    }
+    .code-input:focus { border-color: var(--accent-p1); }
+
+    /* Status badge */
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      border-radius: 100px;
+      font-size: 0.95rem;
+      font-weight: 700;
+      background: rgba(255,255,255,0.08);
+      margin: 0 auto;
+    }
+    .status-paired { background: rgba(199, 243, 107, 0.18); color: var(--accent-p1); border: 1px solid var(--accent-p1); }
+    .status-failed { background: rgba(243, 90, 90, 0.2); color: #ff8e8e; border: 1px solid #ff8e8e; }
+    .status-waiting { background: rgba(243, 166, 90, 0.2); color: var(--accent-p2); border: 1px solid var(--accent-p2); }
+
+    /* Swing Meter */
+    .meter-circle {
+      width: 160px;
+      height: 160px;
+      border-radius: 50%;
+      border: 6px solid var(--accent-p1);
+      margin: 10px auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle, rgba(199,243,107,0.15) 0%, transparent 70%);
+      transition: border-color 0.2s;
+    }
+    .meter-val { font-size: 2.8rem; font-weight: 900; font-variant-numeric: tabular-nums; line-height: 1; }
+    .meter-unit { font-size: 0.85rem; color: #a2caa9; margin-top: 4px; }
+
+    /* Report Card Grid */
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      font-size: 1rem;
+    }
+    .stat-val { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+    /* Camera Scanner Overlay */
+    #scanner-overlay {
+      position: fixed; inset: 0; z-index: 10000;
+      background: #000;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 20px;
+    }
+    #qr-video-box { width: 100%; max-width: 380px; aspect-ratio: 1; border-radius: 20px; overflow: hidden; }
+
+    #log { max-height: 120px; overflow-y: auto; text-align: left; padding-left: 24px; margin: 0; font-size: 0.85rem; color: #a4ceb5; }
   </style>
 </head>
 <body>
   <main>
-    <h1>Tennis Controller</h1>
-    <p id="status" role="status" aria-live="polite">Connecting…</p>
-    <button id="start" type="button">Tap to start</button>
-    <section class="readout" aria-live="polite">
-      Live motion magnitude: <strong id="magnitude">0.0</strong>
-      <div class="hint" id="threshold-label"></div>
+
+    <!-- SCREEN 1: PAIRING / BOOT UP -->
+    <section id="screen-pairing" class="screen">
+      <div style="text-align:center; margin-top: 10px;">
+        <span style="font-size: 40px;">🎾</span>
+        <h1 style="margin: 6px 0; font-size: 1.8rem;">Phone Tennis Racket</h1>
+        <p style="margin: 0; color: #a4ceb5; font-size: 0.95rem;">Connect this phone to the TV screen</p>
+      </div>
+
+      <div class="card">
+        <label for="room-input" style="font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; color: #a2caa9;">
+          Enter 4-Letter TV Room Code
+        </label>
+        <input id="room-input" class="code-input" type="text" maxlength="4" placeholder="----" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false">
+
+        <button id="btn-connect" class="btn btn-p1" type="button">
+          🔗 Connect Racket
+        </button>
+
+        <div style="display:flex; align-items:center; gap: 10px; margin: 18px 0; color: rgba(255,255,255,0.4); font-size: 0.85rem;">
+          <div style="flex:1; height:1px; background:rgba(255,255,255,0.15);"></div>
+          <span>OR SCAN FROM TV</span>
+          <div style="flex:1; height:1px; background:rgba(255,255,255,0.15);"></div>
+        </div>
+
+        <button id="btn-open-scanner" class="btn btn-secondary" type="button">
+          📷 Scan TV QR Code
+        </button>
+      </div>
+
+      <!-- Pairing feedback message -->
+      <div id="pair-status" class="status-badge">
+        Ready to connect
+      </div>
     </section>
-    <p class="hint">Hold your phone securely and swing it like a racket.</p>
-    <ol id="log" aria-label="Recent swings"></ol>
+
+
+    <!-- SCREEN 2: ACTIVE GAME CONTROLLER -->
+    <section id="screen-controller" class="screen hidden">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span id="player-tag" class="status-badge status-paired">🟢 Player 1</span>
+        <span id="room-tag" style="font-size: 0.9rem; font-weight: 700; color:#a2caa9; letter-spacing: 1px;">ROOM: ----</span>
+      </div>
+
+      <!-- PvP Waiting Banner -->
+      <div id="pvp-waiting-box" class="card status-waiting hidden" style="padding:14px; text-align:center;">
+        <div style="font-size:1.1rem; font-weight:800;">⏳ Waiting for Player 2...</div>
+        <p style="margin:4px 0 0; font-size:0.85rem;">Ask friend to scan the SAME QR code on TV!</p>
+      </div>
+
+      <button id="btn-motion" class="btn btn-p1" type="button">
+        ⚡ Tap to Enable Motion Racket
+      </button>
+
+      <div class="card">
+        <div id="swing-meter" class="meter-circle">
+          <div id="magnitude" class="meter-val">0.0</div>
+          <div class="meter-unit">LIVE MAGNITUDE</div>
+        </div>
+        <div id="swing-hint" style="font-size: 1.15rem; font-weight: 700; color: #fff; margin-top: 6px;">
+          Hold securely & swing!
+        </div>
+        <div style="font-size: 0.85rem; color: #9bc3a6; margin-top: 4px;">
+          Swing power & direction (Forehand / Backhand)
+        </div>
+      </div>
+
+      <!-- In-match fitness preview -->
+      <div class="card" style="padding: 14px;">
+        <div style="display:flex; justify-content:space-around; align-items:center;">
+          <div>
+            <div id="live-swings" style="font-size: 1.5rem; font-weight: 800; color: var(--accent-p1);">0</div>
+            <div style="font-size: 0.75rem; color: #a2caa9;">TOTAL SWINGS</div>
+          </div>
+          <div style="width:1px; height:32px; background:rgba(255,255,255,0.15);"></div>
+          <div>
+            <div id="live-calories" style="font-size: 1.5rem; font-weight: 800; color: var(--accent-p2);">0</div>
+            <div style="font-size: 0.75rem; color: #a2caa9;">ACTIVE KCAL</div>
+          </div>
+          <div style="width:1px; height:32px; background:rgba(255,255,255,0.15);"></div>
+          <div>
+            <div id="live-peak" style="font-size: 1.5rem; font-weight: 800; color: #fff;">0%</div>
+            <div style="font-size: 0.75rem; color: #a2caa9;">PEAK POWER</div>
+          </div>
+        </div>
+      </div>
+
+      <ol id="log" aria-label="Recent swings"></ol>
+    </section>
+
+
+    <!-- SCREEN 3: MATCH REPORT CARD & FITNESS DETAILS -->
+    <section id="screen-report" class="screen hidden">
+      <div style="text-align:center;">
+        <div style="font-size: 42px;">🏆</div>
+        <h1 id="report-title" style="margin: 4px 0; font-size: 1.7rem;">Match Report Card</h1>
+        <div id="report-score-banner" class="status-badge status-paired" style="font-size:1.1rem; padding: 6px 18px;">
+          Score: 5 — 3
+        </div>
+      </div>
+
+      <div class="card" style="text-align:left;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
+          <h2 style="margin: 0; font-size: 1.25rem; color: var(--accent-p1);">Your Fitness Summary</h2>
+          <span id="report-intensity" class="status-badge" style="font-size:0.75rem; padding: 4px 10px;">Cardio Burn</span>
+        </div>
+
+        <div class="stat-row">
+          <span>🔥 Active Calories Burned</span>
+          <span id="rep-calories" class="stat-val" style="color:var(--accent-p1);">-- kcal</span>
+        </div>
+        <div class="stat-row">
+          <span>🎾 Total Swings</span>
+          <span id="rep-swings" class="stat-val">--</span>
+        </div>
+        <div class="stat-row">
+          <span>🎯 Hit Accuracy</span>
+          <span id="rep-accuracy" class="stat-val">--%</span>
+        </div>
+        <div class="stat-row">
+          <span>⚡ Peak Swing Speed</span>
+          <span id="rep-speed" class="stat-val">-- km/h</span>
+        </div>
+        <div class="stat-row">
+          <span>📊 Average Power</span>
+          <span id="rep-power" class="stat-val">--%</span>
+        </div>
+        <div class="stat-row" style="border:none;">
+          <span>⏱️ Match Duration</span>
+          <span id="rep-duration" class="stat-val">--s</span>
+        </div>
+      </div>
+
+      <!-- Download PDF Button -->
+      <button id="btn-download-pdf" class="btn btn-p1" type="button">
+        📥 Download Report Card (PDF)
+      </button>
+
+      <!-- TV-only retry notice -->
+      <div class="card" style="padding: 12px; background: rgba(0,0,0,0.25);">
+        <p style="margin: 0; font-size: 0.9rem; color: #a4ceb5;">
+          🔄 <strong>Next match:</strong> TV Host controls the Retry button.<br>
+          Once TV restarts, your racket will automatically reconnect!
+        </p>
+      </div>
+    </section>
+
   </main>
+
+  <!-- CAMERA SCANNER OVERLAY -->
+  <div id="scanner-overlay" class="hidden">
+    <div style="color:#fff; font-size:1.3rem; font-weight:800; margin-bottom:14px;">Scan TV QR Code</div>
+    <div id="qr-video-box"></div>
+    <button id="btn-close-scanner" class="btn btn-secondary" style="margin-top:20px; max-width:280px;" type="button">
+      ✕ Cancel & Close Camera
+    </button>
+  </div>
 
   <script>
     (function () {
-      // Change this single axis if calibration shows another rotation axis works better.
-      var DIRECTION_AXIS = 'alpha';
-      var MIN_SWING_GAP_MS = 400;
-      var GRAVITY = 9.8;
+      const DIRECTION_AXIS = 'alpha';
+      const MIN_SWING_GAP_MS = 380;
+      const GRAVITY = 9.8;
+      const threshold = 15;
 
-      var params = new URLSearchParams(window.location.search);
-      var code = params.get('code') || '';
-      var requestedThreshold = Number(params.get('t'));
-      var threshold = params.has('t') && isFinite(requestedThreshold) && requestedThreshold > 0
-        ? requestedThreshold
-        : 15;
-      var status = document.getElementById('status');
-      var startButton = document.getElementById('start');
-      var magnitudeOutput = document.getElementById('magnitude');
-      var thresholdLabel = document.getElementById('threshold-label');
-      var log = document.getElementById('log');
-      var socket = null;
-      var reconnectTimer = null;
-      var reconnectDelay = 500;
-      var lastSwingAt = 0;
-      var listening = false;
-      var wakeLock = null;
-      var playerNumber = null;
+      let socket = null;
+      let playerNumber = null;
+      let currentRoom = '';
+      let currentMode = 'ai';
+      let listening = false;
+      let wakeLock = null;
+      let lastSwingAt = 0;
+      let html5QrScanner = null;
+      let latestReport = null;
 
-      thresholdLabel.textContent = 'Swing threshold: ' + threshold.toFixed(1) + (params.has('t') ? ' (from URL)' : '');
+      // Stats tracking on phone
+      let swingCount = 0;
+      let peakPower = 0;
 
-      function setStatus(message) {
-        status.textContent = message;
+      // DOM Elements
+      const screenPairing = document.getElementById('screen-pairing');
+      const screenController = document.getElementById('screen-controller');
+      const screenReport = document.getElementById('screen-report');
+      const scannerOverlay = document.getElementById('scanner-overlay');
+
+      const roomInput = document.getElementById('room-input');
+      const btnConnect = document.getElementById('btn-connect');
+      const btnOpenScanner = document.getElementById('btn-open-scanner');
+      const btnCloseScanner = document.getElementById('btn-close-scanner');
+      const pairStatus = document.getElementById('pair-status');
+
+      const playerTag = document.getElementById('player-tag');
+      const roomTag = document.getElementById('room-tag');
+      const pvpWaitingBox = document.getElementById('pvp-waiting-box');
+      const btnMotion = document.getElementById('btn-motion');
+      const magnitudeEl = document.getElementById('magnitude');
+      const swingHint = document.getElementById('swing-hint');
+      const swingMeter = document.getElementById('swing-meter');
+      const liveSwings = document.getElementById('live-swings');
+      const liveCalories = document.getElementById('live-calories');
+      const livePeak = document.getElementById('live-peak');
+      const log = document.getElementById('log');
+
+      // Check URL parameters on boot
+      const params = new URLSearchParams(window.location.search);
+      const urlCode = params.get('code') || '';
+      if (urlCode) {
+        roomInput.value = urlCode.toUpperCase();
+        attemptConnection(urlCode.toUpperCase());
       }
 
-      function connect() {
-        if (!code) {
-          setStatus('Add ?code=ROOM to this page URL to join a room.');
+      // Auto-uppercase room input
+      roomInput.addEventListener('input', () => {
+        roomInput.value = roomInput.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4);
+      });
+
+      // Connect Button
+      btnConnect.addEventListener('click', () => {
+        const val = roomInput.value.trim().toUpperCase();
+        if (val.length < 2) {
+          showPairStatus('Please enter a 4-letter room code', 'failed');
           return;
         }
-        if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
+        attemptConnection(val);
+      });
 
-        var scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      function showPairStatus(text, type) {
+        pairStatus.textContent = text;
+        pairStatus.className = 'status-badge ' + (type === 'paired' ? 'status-paired' : (type === 'failed' ? 'status-failed' : 'status-waiting'));
+      }
+
+      function attemptConnection(code) {
+        currentRoom = code;
+        showPairStatus(`🟡 Connecting to room ${code}...`, 'waiting');
+
+        if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+          socket.close();
+        }
+
+        const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         socket = new WebSocket(scheme + '//' + window.location.host);
-        setStatus('Connecting to room ' + code.toUpperCase() + '…');
 
-        socket.addEventListener('open', function () {
-          reconnectDelay = 500;
-          socket.send(JSON.stringify({ type: 'join', code: code }));
+        socket.addEventListener('open', () => {
+          socket.send(JSON.stringify({ type: 'join', code: currentRoom }));
         });
-        socket.addEventListener('message', function (event) {
-          var message;
-          try { message = JSON.parse(event.data); } catch (_error) { return; }
-          if (message.type === 'joined') {
-            playerNumber = message.player;
-            setStatus('Connected as Player ' + playerNumber);
-          } else if (message.type === 'error') {
+
+        socket.addEventListener('message', event => {
+          let msg;
+          try { msg = JSON.parse(event.data); } catch (_e) { return; }
+
+          if (msg.type === 'joined') {
+            playerNumber = msg.player;
+            currentMode = msg.mode || 'ai';
+            onPairedSuccess();
+          } else if (msg.type === 'error') {
             playerNumber = null;
-            setStatus('Room ' + code.toUpperCase() + ' was not found. Check the code and reconnect.');
+            showPairStatus(`❌ FAILED: ${msg.reason || 'Room not found'}`, 'failed');
+            if (navigator.vibrate) navigator.vibrate([100, 100, 100]);
+          } else if (msg.type === 'report') {
+            latestReport = msg.report;
+            showReportCard(msg.report);
+          } else if (msg.type === 'restart') {
+            onMatchRestart();
           }
         });
-        socket.addEventListener('close', function () {
-          playerNumber = null;
-          setStatus('Connection lost. Reconnecting…');
-          scheduleReconnect();
-        });
-        socket.addEventListener('error', function () {
-          setStatus('WebSocket connection problem. Reconnecting…');
-        });
-      }
 
-      function scheduleReconnect() {
-        if (reconnectTimer || !code) return;
-        reconnectTimer = window.setTimeout(function () {
-          reconnectTimer = null;
-          connect();
-          reconnectDelay = Math.min(reconnectDelay * 2, 5000);
-        }, reconnectDelay);
-      }
+        socket.addEventListener('close', () => {
+          if (screenController.classList.contains('hidden') === false) {
+            showPairStatus('Disconnected from TV. Reconnecting...', 'waiting');
+          }
+        });
 
-      function requestWakeLock() {
-        if (!('wakeLock' in navigator) || document.visibilityState === 'hidden') return;
-        navigator.wakeLock.request('screen').then(function (lock) {
-          wakeLock = lock;
-          wakeLock.addEventListener('release', function () { wakeLock = null; });
-        }).catch(function () {
-          // Wake locks are optional; the controller remains usable without one.
+        socket.addEventListener('error', () => {
+          showPairStatus('❌ Connection error to server', 'failed');
         });
       }
 
+      function onPairedSuccess() {
+        showPairStatus(`✅ PAIRED: Connected as Player ${playerNumber}`, 'paired');
+        if (navigator.vibrate) navigator.vibrate(120);
+
+        setTimeout(() => {
+          screenPairing.classList.add('hidden');
+          screenReport.classList.add('hidden');
+          screenController.classList.remove('hidden');
+
+          playerTag.textContent = playerNumber === 1 ? '🟢 Player 1 (Green)' : '🟠 Player 2 (Orange)';
+          playerTag.className = 'status-badge ' + (playerNumber === 1 ? 'status-paired' : 'status-waiting');
+          roomTag.textContent = 'ROOM: ' + currentRoom;
+
+          if (currentMode === 'pvp' && playerNumber === 1) {
+            pvpWaitingBox.classList.remove('hidden');
+          } else {
+            pvpWaitingBox.classList.add('hidden');
+          }
+        }, 500);
+      }
+
+      function onMatchRestart() {
+        // Reset swing counters
+        swingCount = 0;
+        peakPower = 0;
+        liveSwings.textContent = '0';
+        liveCalories.textContent = '0';
+        livePeak.textContent = '0%';
+        if (log) log.innerHTML = '';
+
+        screenReport.classList.add('hidden');
+        screenController.classList.remove('hidden');
+        if (navigator.vibrate) navigator.vibrate([80, 50, 80]);
+        swingHint.textContent = 'New match started! Swing!';
+      }
+
+      // Camera QR Scanner integration
+      btnOpenScanner.addEventListener('click', () => {
+        scannerOverlay.classList.remove('hidden');
+        if (!html5QrScanner) {
+          html5QrScanner = new Html5Qrcode("qr-video-box");
+        }
+        html5QrScanner.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: { width: 250, height: 250 } },
+          (decodedText) => {
+            // Found QR Code!
+            try {
+              const url = new URL(decodedText);
+              const scannedCode = url.searchParams.get('code');
+              if (scannedCode) {
+                closeScanner();
+                roomInput.value = scannedCode.toUpperCase();
+                attemptConnection(scannedCode.toUpperCase());
+                return;
+              }
+            } catch (_err) {
+              // Not a full URL, treat as raw room code if 4 letters
+              if (decodedText.length === 4) {
+                closeScanner();
+                roomInput.value = decodedText.toUpperCase();
+                attemptConnection(decodedText.toUpperCase());
+                return;
+              }
+            }
+          },
+          () => {} // ignore frame scan errors
+        ).catch(err => {
+          alert("Camera access failed or unavailable: " + err);
+          closeScanner();
+        });
+      });
+
+      function closeScanner() {
+        scannerOverlay.classList.add('hidden');
+        if (html5QrScanner) {
+          html5QrScanner.stop().catch(() => {});
+        }
+      }
+      btnCloseScanner.addEventListener('click', closeScanner);
+
+      // Motion handling
       function vectorMagnitude(vector) {
-        if (!vector || typeof vector.x !== 'number' || typeof vector.y !== 'number' || typeof vector.z !== 'number') return null;
+        if (!vector || typeof vector.x !== 'number') return null;
         return Math.sqrt(vector.x * vector.x + vector.y * vector.y + vector.z * vector.z);
       }
 
       function getMagnitude(event) {
-        var magnitude = vectorMagnitude(event.acceleration);
-        if (magnitude !== null) return magnitude;
-        magnitude = vectorMagnitude(event.accelerationIncludingGravity);
-        return magnitude === null ? 0 : Math.max(0, magnitude - GRAVITY);
-      }
-
-      function prependSwing(text) {
-        var item = document.createElement('li');
-        item.textContent = text;
-        log.insertBefore(item, log.firstChild);
-        while (log.children.length > 20) log.removeChild(log.lastChild);
+        let mag = vectorMagnitude(event.acceleration);
+        if (mag !== null) return mag;
+        mag = vectorMagnitude(event.accelerationIncludingGravity);
+        return mag === null ? 0 : Math.max(0, mag - GRAVITY);
       }
 
       function handleMotion(event) {
-        var magnitude = getMagnitude(event);
-        magnitudeOutput.textContent = magnitude.toFixed(1);
-        var now = Date.now();
-        if (magnitude <= threshold || now - lastSwingAt < MIN_SWING_GAP_MS) return;
+        const mag = getMagnitude(event);
+        magnitudeEl.textContent = mag.toFixed(1);
+
+        const now = Date.now();
+        if (mag <= threshold || now - lastSwingAt < MIN_SWING_GAP_MS) return;
         lastSwingAt = now;
 
-        var rotation = event.rotationRate || {};
-        var direction = rotation[DIRECTION_AXIS] > 0 ? 'forehand' : 'backhand';
-        var power = Math.min(magnitude / 40, 1);
-        var message = { type: 'swing', power: power, dir: direction };
+        const rotation = event.rotationRate || {};
+        const direction = (rotation[DIRECTION_AXIS] || 0) > 0 ? 'forehand' : 'backhand';
+        const power = Math.min(mag / 40, 1);
+
+        // Update local stats
+        swingCount++;
+        peakPower = Math.max(peakPower, power);
+        const calories = Math.round(swingCount * 0.6);
+
+        liveSwings.textContent = swingCount;
+        liveCalories.textContent = calories;
+        livePeak.textContent = Math.round(peakPower * 100) + '%';
+        swingHint.textContent = `${direction.toUpperCase()} · ${Math.round(power * 100)}% power`;
+
+        // Send to TV host via server
         if (socket && socket.readyState === WebSocket.OPEN && playerNumber !== null) {
-          socket.send(JSON.stringify(message));
+          socket.send(JSON.stringify({
+            type: 'swing',
+            power: power,
+            dir: direction
+          }));
         }
-        if (navigator.vibrate) navigator.vibrate(40);
-        prependSwing(direction + ' · power ' + power.toFixed(2) + ' · ' + magnitude.toFixed(1));
+
+        if (navigator.vibrate) navigator.vibrate(50);
+
+        const item = document.createElement('li');
+        item.textContent = `${direction} · power ${(power * 100).toFixed(0)}% · ${mag.toFixed(1)} m/s²`;
+        log.insertBefore(item, log.firstChild);
+        while (log.children.length > 8) log.removeChild(log.lastChild);
       }
 
-      startButton.addEventListener('click', async function () {
+      btnMotion.addEventListener('click', async () => {
         if (!listening) {
           if (typeof DeviceMotionEvent === 'undefined') {
-            setStatus('Motion sensors are not available in this browser.');
+            alert('Motion sensors not supported on this browser.');
             return;
           }
           if (typeof DeviceMotionEvent.requestPermission === 'function') {
             try {
-              var permission = await DeviceMotionEvent.requestPermission();
-              if (permission !== 'granted') {
-                setStatus('Motion permission was denied. Allow motion access and tap to start again.');
+              const perm = await DeviceMotionEvent.requestPermission();
+              if (perm !== 'granted') {
+                alert('Permission denied for motion sensors.');
                 return;
               }
-            } catch (_error) {
-              setStatus('Could not request motion permission. Check browser settings and try again.');
+            } catch (err) {
+              alert('Could not request permission: ' + err);
               return;
             }
           }
           window.addEventListener('devicemotion', handleMotion);
           listening = true;
-          startButton.textContent = 'Swing enabled';
-          startButton.disabled = true;
-          setStatus(playerNumber === null ? 'Motion enabled. Waiting for room connection…' : 'Connected as Player ' + playerNumber);
+          btnMotion.textContent = '🎾 Motion Racket Enabled';
+          btnMotion.style.background = 'rgba(255,255,255,0.1)';
+          btnMotion.disabled = true;
         }
-        requestWakeLock();
+        if ('wakeLock' in navigator && !wakeLock) {
+          navigator.wakeLock.request('screen').then(lock => { wakeLock = lock; }).catch(() => {});
+        }
       });
 
-      document.addEventListener('visibilitychange', function () {
-        if (document.visibilityState === 'visible' && listening) requestWakeLock();
-      });
+      // Show Report Card on Phone
+      function showReportCard(report) {
+        screenController.classList.add('hidden');
+        screenReport.classList.remove('hidden');
+        if (navigator.vibrate) navigator.vibrate([150, 80, 150]);
 
-      connect();
+        const myStats = (playerNumber === 2 && report.p2) ? report.p2 : (report.p1 || {});
+        const p1Score = report.score?.p1 || 0;
+        const p2Score = report.score?.p2 || 0;
+
+        const won = (playerNumber === 1 && p1Score > p2Score) || (playerNumber === 2 && p2Score > p1Score);
+        document.getElementById('report-title').textContent = won ? '🏆 Victory! You Won!' : '🎾 Good Match!';
+        document.getElementById('report-score-banner').textContent = `Final Score: P1 (${p1Score}) — (${p2Score}) P2`;
+
+        document.getElementById('report-intensity').textContent = myStats.intensity || 'Cardio Zone';
+        document.getElementById('rep-calories').textContent = `~${myStats.calories || Math.round(swingCount * 0.6)} kcal`;
+        document.getElementById('rep-swings').textContent = `${myStats.swings || swingCount} (${myStats.forehands || 0}F / ${myStats.backhands || 0}B)`;
+        document.getElementById('rep-accuracy').textContent = `${myStats.accuracy || 0}% (${myStats.hits || 0} hits)`;
+        document.getElementById('rep-speed').textContent = `${myStats.peakSpeedKmh || 0} km/h (${myStats.peakPower || 0}%)`;
+        document.getElementById('rep-power').textContent = `${myStats.avgPower || 0}%`;
+        document.getElementById('rep-duration').textContent = `${report.durationSeconds || 0}s`;
+      }
+
+      // Download PDF using jsPDF
+      document.getElementById('btn-download-pdf').addEventListener('click', () => {
+        if (!window.jspdf || !latestReport) {
+          alert('Report data not ready.');
+          return;
+        }
+
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+        const myStats = (playerNumber === 2 && latestReport.p2) ? latestReport.p2 : (latestReport.p1 || {});
+
+        // Header Background
+        doc.setFillColor(13, 37, 28);
+        doc.rect(0, 0, 210, 48, 'F');
+
+        // Header Text
+        doc.setTextColor(199, 243, 107);
+        doc.setFontSize(24);
+        doc.setFont('helvetica', 'bold');
+        doc.text('PHONE TENNIS - MATCH & FITNESS REPORT', 20, 22);
+
+        doc.setTextColor(240, 255, 245);
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`Official Player Report Card · Room ${currentRoom} · Mode: ${latestReport.mode?.toUpperCase()}`, 20, 32);
+        doc.text(`Date: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`, 20, 40);
+
+        // Result Card
+        doc.setFillColor(245, 250, 247);
+        doc.roundedRect(20, 56, 170, 32, 4, 4, 'F');
+        doc.setDrawColor(199, 243, 107);
+        doc.setLineWidth(0.8);
+        doc.roundedRect(20, 56, 170, 32, 4, 4, 'S');
+
+        doc.setTextColor(15, 39, 29);
+        doc.setFontSize(16);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`MATCH OUTCOME: ${latestReport.winner?.toUpperCase()} WINS`, 26, 68);
+
+        doc.setFontSize(13);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`Score: Player 1 (${latestReport.score?.p1}) — (${latestReport.score?.p2}) Player 2/AI   |   Duration: ${latestReport.durationSeconds}s`, 26, 78);
+
+        // Player Section
+        doc.setTextColor(13, 37, 28);
+        doc.setFontSize(16);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`Fitness & Performance Summary (Player ${playerNumber})`, 20, 102);
+
+        // Stats Table
+        const rows = [
+          ['Active Energy Expended', `~${myStats.calories || 0} kcal`],
+          ['Total Racket Swings', `${myStats.swings || 0} (${myStats.forehands || 0} Forehand, ${myStats.backhands || 0} Backhand)`],
+          ['Hit / Return Accuracy', `${myStats.accuracy || 0}% (${myStats.hits || 0} on-court returns)`],
+          ['Peak Swing Speed', `${myStats.peakSpeedKmh || 0} km/h (Peak Power: ${myStats.peakPower || 0}%)`],
+          ['Average Swing Intensity', `${myStats.avgPower || 0}%`],
+          ['Longest Match Rally', `${latestReport.longestRally || 0} consecutive hits`],
+          ['Cardio Zone Classification', `${myStats.intensity || 'Active Workout'}`]
+        ];
+
+        let y = 112;
+        rows.forEach(([label, val], idx) => {
+          doc.setFillColor(idx % 2 === 0 ? 245 : 255, 249, 246);
+          doc.rect(20, y - 6, 170, 10, 'F');
+
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(11);
+          doc.setTextColor(60, 75, 68);
+          doc.text(label, 24, y);
+
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(13, 37, 28);
+          doc.text(val, 185, y, { align: 'right' });
+          y += 10;
+        });
+
+        // Verification Footer
+        doc.setDrawColor(200, 215, 205);
+        doc.line(20, 240, 190, 240);
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'italic');
+        doc.setTextColor(120, 140, 130);
+        doc.text('Certified by Phone Tennis Motion Engine · Powered by WebSocket Relay', 20, 248);
+        doc.text('Download timestamp: ' + new Date().toISOString(), 20, 254);
+
+        // Save PDF
+        doc.save(`PhoneTennis_Report_${currentRoom}_P${playerNumber}.pdf`);
+      });
     }());
   </script>
 </body>
