@@ -15,12 +15,17 @@
     canvas { display:block; width:100%; aspect-ratio:16/9; background:#236b4d; border:8px solid #c7f36b; border-radius:16px }
     .help { color:#c5d9cc; text-align:center; margin:10px 0 0 }
   </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
-<body><main>
+<body>
+<main>
+  <div id="lobby"></div>
+  <div id="results" style="display:none"></div>
   <header><h1>PHONE TENNIS</h1><strong id="score">YOU 0 — 0 AI</strong><span id="status">Keyboard ready · F / B to swing</span></header>
   <canvas id="court" width="960" height="540" aria-label="Tennis game"></canvas>
   <p class="help">Swing with your phone, or press F for forehand and B for backhand. First to 5 wins.</p>
 </main>
+<script src="lobby.js"></script>
 <script>
 (() => {
   const canvas = document.getElementById('court'), ctx = canvas.getContext('2d');
@@ -29,9 +34,14 @@
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   let ball={x:W/2,y:H/2,vx:3,vy:3}, me={x:W/2}, ai={x:W/2}, score={me:0,ai:0};
   let stats={swings:0,hits:0,peak:0}, running=true, last=performance.now(), aiDelay=0, aiTarget=W/2, flash=0;
-  const params=new URLSearchParams(location.search), roomCode=(params.get('code')||'TEST').toUpperCase();
+  const params=new URLSearchParams(location.search), roomCode=(params.get('code')||window.roomCode||'TEST').toUpperCase();
   const scheme=location.protocol==='https:'?'wss:':'ws:'; let socket;
   function connect(){
+    if(window.ws){
+      socket=window.ws;
+      socket.addEventListener('message',e=>{let m;try{m=JSON.parse(e.data)}catch{return} if(m.type==='joined')statusEl.textContent='Player '+m.player+' connected!'; if(m.type==='swing')onSwing(m)});
+      return;
+    }
     socket=new WebSocket(scheme+'//'+location.host);
     socket.addEventListener('open',()=>{socket.send(JSON.stringify({type:'host',code:roomCode}));statusEl.textContent='Room '+roomCode+' · waiting for player';});
     socket.addEventListener('message',e=>{let m;try{m=JSON.parse(e.data)}catch{return} if(m.type==='joined')statusEl.textContent='Player '+m.player+' connected!'; if(m.type==='swing')onSwing(m)});
@@ -45,8 +55,17 @@
   }
   window.onTennisSwing=onSwing;
   window.addEventListener('keydown',e=>{if(e.repeat)return;if(e.key.toLowerCase()==='f')onSwing({power:.7,dir:'forehand'});if(e.key.toLowerCase()==='b')onSwing({power:.7,dir:'backhand'});});
-  function point(who){ score[who]++;scoreEl.textContent=`YOU ${score.me} — ${score.ai} AI`;running=score.me<5&&score.ai<5;statusEl.textContent=running?(who==='me'?'Point! Your serve.':'AI scores. Your serve.'):(score.me===5?'YOU WIN! Press Enter to play again':'AI WINS · Press Enter to play again');ball={x:W/2,y:H/2,vx:(Math.random()-.5)*3,vy:who==='me'?3:-3}; }
+  function point(who){
+    score[who]++;scoreEl.textContent=`YOU ${score.me} — ${score.ai} AI`;
+    running=score.me<5&&score.ai<5;
+    statusEl.textContent=running?(who==='me'?'Point! Your serve.':'AI scores. Your serve.'):(score.me===5?'YOU WIN! Press Enter to play again':'AI WINS · Press Enter to play again');
+    ball={x:W/2,y:H/2,vx:(Math.random()-.5)*3,vy:who==='me'?3:-3};
+    if(!running && typeof window.showResults === 'function'){
+      window.showResults({ won: score.me === 5, swings: stats.swings, hits: stats.hits, peak: stats.peak });
+    }
+  }
   function reset(){score={me:0,ai:0};stats={swings:0,hits:0,peak:0};scoreEl.textContent='YOU 0 — 0 AI';running=true;statusEl.textContent='Game on!';ball={x:W/2,y:H/2,vx:2,vy:3};}
+  window.onGameStart = () => { reset(); };
   window.addEventListener('keydown',e=>{if(e.key==='Enter'&&!running)reset()});
   function draw(now){
     const dt=Math.min((now-last)/16.67,2);last=now;
