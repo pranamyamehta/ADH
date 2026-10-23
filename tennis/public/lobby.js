@@ -204,27 +204,45 @@
         box-shadow: 0 10px 28px rgba(0,0,0,0.5);
         width: 204px;
         height: 204px;
-        aspect-ratio: 1 / 1;
+        min-width: 204px;
+        min-height: 204px;
         display: flex;
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
         box-sizing: border-box;
+        overflow: hidden;
       }
       #qr {
         width: 180px;
         height: 180px;
-        aspect-ratio: 1 / 1;
+        min-width: 180px;
+        min-height: 180px;
+        position: relative;
         display: flex;
         align-items: center;
         justify-content: center;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
       }
-      #qr canvas, #qr img {
+      #qr canvas {
+        display: none; /* Hide canvas fallback once image is rendered */
+        width: 180px;
+        height: 180px;
+      }
+      #qr img {
         width: 180px !important;
         height: 180px !important;
-        aspect-ratio: 1 / 1 !important;
+        min-width: 180px !important;
+        min-height: 180px !important;
+        margin: 0 !important;
+        padding: 0 !important;
         display: block !important;
         object-fit: contain !important;
+      }
+      #qr canvas[style*="display: none"], #qr img[style*="display: none"] {
+        display: none !important;
       }
 
       /* RESULTS SCREEN TV LAYOUT */
@@ -372,12 +390,14 @@
 
     lobby.innerHTML = `
       <div id="qr-container" style="max-width: 780px; width: 100%; display:flex; flex-direction:column; align-items:center;">
-        <div style="display:flex; justify-content:space-between; align-items:center; width:100%; margin-bottom:8px;">
-          <button class="btn-secondary" id="btn-back-mode" tabindex="0">← Change Format [Press OK/Back]</button>
-          <span style="font-size:13px; font-weight:700; color:#c7f36b; background:rgba(199,243,107,0.12); padding:5px 12px; border-radius:100px;">
+        <div style="display:grid; grid-template-columns: 1fr auto 1fr; align-items:center; width:100%; margin-bottom:10px;">
+          <div style="text-align:left;">
+            <button class="btn-secondary" id="btn-back-mode" tabindex="0">← Change Format [Press OK/Back]</button>
+          </div>
+          <span style="font-size:13px; font-weight:700; color:#c7f36b; background:rgba(199,243,107,0.12); padding:5px 14px; border-radius:100px;">
             ${selectedMode === 'pvp' ? '👥 2P PLAYER VS PLAYER' : '👤 1P VS AI'} &nbsp;·&nbsp; ${targetRounds} ROUND${targetRounds > 1 ? 'S' : ''}
           </span>
-          <div style="width:80px;"></div>
+          <div></div>
         </div>
 
         <h1 style="font-size: 28px; margin: 0 0 4px; font-weight: 800;">Scan with Phone to Connect Racket</h1>
@@ -385,16 +405,16 @@
           ${selectedMode === 'pvp' ? 'Both players scan this same QR code on their phones' : 'Scan to connect phone as Player 1'}
         </p>
 
-        <div style="display:flex; gap:28px; align-items:center; justify-content:center; flex-wrap:wrap; margin-bottom: 12px;">
+        <div style="display:flex; gap:32px; align-items:center; justify-content:center; flex-wrap:nowrap; margin-bottom: 12px;">
           <!-- 1:1 SQUARE QR CARD -->
           <div class="qr-card-box">
             <div id="qr"></div>
           </div>
 
-          <div style="text-align:left; max-width:300px;">
+          <div style="text-align:left; max-width:320px; flex-shrink:0;">
             <div style="font-size:12px; text-transform:uppercase; letter-spacing:1px; color:#95bfa6;">Room Code</div>
-            <div style="font-size: 44px; font-weight: 900; letter-spacing: 5px; color: #c7f36b; margin: 0 0 6px;">${code}</div>
-            <div style="font-size: 14px; color: #d0edd9; line-height: 1.35;">
+            <div style="font-size: 46px; font-weight: 900; letter-spacing: 6px; color: #c7f36b; margin: 0 0 6px; line-height: 1;">${code}</div>
+            <div style="font-size: 14px; color: #d0edd9; line-height: 1.4;">
               Or go to <strong style="color:#fff;">${location.host}/phone.html</strong><br>
               Enter room <strong style="color:#c7f36b;">${code}</strong> on phone
             </div>
@@ -420,6 +440,20 @@
         width: 180,
         height: 180,
         correctLevel: QRCode.CorrectLevel.M
+      });
+      // Safety check: ensure canvas and img are not both rendered simultaneously
+      requestAnimationFrame(() => {
+        const c = qrDiv.querySelector('canvas');
+        const img = qrDiv.querySelector('img');
+        if (img && img.src && img.src.length > 20) {
+          if (c) c.style.setProperty('display', 'none', 'important');
+          img.style.setProperty('display', 'block', 'important');
+          img.style.setProperty('margin', '0 auto', 'important');
+        } else if (c) {
+          c.style.setProperty('display', 'block', 'important');
+          c.style.setProperty('margin', '0 auto', 'important');
+          if (img) img.style.setProperty('display', 'none', 'important');
+        }
       });
     }
 
