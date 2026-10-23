@@ -5,7 +5,11 @@
   let p1Name = 'Player 1';
   let p2Name = 'Player 2';
 
-  const code = Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.floor(Math.random() * 24)]).join('');
+  const urlParams = new URLSearchParams(window.location.search);
+  const codeParam = urlParams.get('code');
+  const code = (codeParam && codeParam.trim().length >= 2)
+    ? codeParam.trim().toUpperCase().slice(0, 6)
+    : Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.floor(Math.random() * 24)]).join('');
   const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
   let ws = null;
   const phoneUrl = `${location.origin}/phone.html?code=${code}`;

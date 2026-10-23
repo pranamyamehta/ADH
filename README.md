@@ -11,6 +11,7 @@ No app installation required. Built with Node.js, WebSockets, HTML5 Canvas, and 
 - [How It Works](#how-it-works)
 - [Features](#features)
 - [Getting Started](#getting-started)
+- [Android / Fire TV Shell](#android--fire-tv-shell)
 - [Project Structure](#project-structure)
 - [Tech Stack](#tech-stack)
 - [Hackathon Submission](#hackathon-submission)
@@ -34,6 +35,7 @@ TV (tv.html)  ◄─────────────────────
 | TV game screen   | `tennis/public/tv.html`    | Canvas game engine, score HUD           |
 | Lobby & setup    | `tennis/public/lobby.js`   | Room creation, player sync, match setup |
 | Phone controller | `tennis/public/phone.html` | Motion racket, live stats, report card  |
+| Fire TV shell    | `android/`                 | Native Android / Fire OS wrapper app    |
 
 ---
 
@@ -158,10 +160,45 @@ DeviceMotion permission on iOS and WebSocket Secure (`wss://`) both require HTTP
 
 ---
 
+## Android / Fire TV Shell
+
+The `android/` directory contains the native Android / Fire OS wrapper app that packages the game for Fire TV with fullscreen display, keep-screen-on flags, and hardware-accelerated WebView rendering.
+
+### Build and Run Steps
+
+1. Open the `android/` folder in **Android Studio**.
+2. Configure your game URL in `app/src/main/java/com/volatiles/tennistv/MainActivity.kt`:
+   ```kotlin
+   private val GAME_URL = "https://<your-stable-host>/tv.html"
+   ```
+3. Connect your Fire TV device via ADB:
+   ```bash
+   adb connect <fire-tv-ip>:5555
+   ```
+4. Build the debug APK:
+   - In Android Studio: **Build > Build Bundle(s) / APK(s) > Build APK(s)**
+   - Or from the terminal:
+     ```bash
+     cd android
+     ./gradlew assembleDebug
+     ```
+5. Install and launch on Fire TV:
+   ```bash
+   adb install -r app/build/outputs/apk/debug/app-debug.apk
+   ```
+
+---
+
 ## Project Structure
 
 ```
 ADH/
+├── android/            # Fire TV native Android shell app
+│   ├── app/
+│   │   ├── src/main/AndroidManifest.xml
+│   │   └── src/main/java/com/volatiles/tennistv/MainActivity.kt
+│   ├── build.gradle.kts
+│   └── settings.gradle.kts
 └── tennis/
     ├── server.js           # WebSocket relay server
     ├── package.json
