@@ -3,17 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Phone Tennis</title>
+  <title>Phone Tennis - Court</title>
   <style>
-    :root { color-scheme: dark; font: 16px system-ui,sans-serif; background:#10251d; color:#f5fff8 }
-    * { box-sizing:border-box }
-    body { margin:0; min-height:100vh; display:grid; place-items:center; }
-    main { width:min(100vw, 1100px); padding:16px }
-    header { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:0 8px }
-    h1 { margin:0; font-size:clamp(1.2rem,3vw,2rem) }
-    #status { color:#c7f36b }
-    canvas { display:block; width:100%; aspect-ratio:16/9; background:#236b4d; border:8px solid #c7f36b; border-radius:16px }
-    .help { color:#c5d9cc; text-align:center; margin:10px 0 0 }
+    :root { color-scheme: dark; font: 16px system-ui, sans-serif; background: #0b1a13; color: #f5fff8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: radial-gradient(circle at 50% 50%, #153828 0%, #07160f 100%); }
+    main { width: min(100vw, 1100px); padding: 12px; }
+    header { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 4px 12px; margin-bottom: 8px; }
+    h1 { margin: 0; font-size: clamp(1.2rem, 2.5vw, 1.8rem); font-weight: 900; letter-spacing: -0.5px; }
+    .hud-badge { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.16); padding: 6px 14px; border-radius: 10px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    #score { font-size: 1.3rem; color: #c7f36b; }
+    #status { color: #d0edd9; font-size: 0.95rem; }
+    canvas { display: block; width: 100%; aspect-ratio: 16/9; background: #16422b; border: 6px solid #c7f36b; border-radius: 18px; box-shadow: 0 16px 40px rgba(0,0,0,0.6); }
+    .help { color: #a4ceb5; text-align: center; margin: 10px 0 0; font-size: 0.88rem; }
   </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
@@ -21,63 +23,168 @@
 <main>
   <div id="lobby"></div>
   <div id="results" style="display:none"></div>
-  <header><h1>PHONE TENNIS</h1><strong id="score">YOU 0 — 0 AI</strong><span id="status">Keyboard ready · F / B to swing</span></header>
-  <canvas id="court" width="960" height="540" aria-label="Tennis game"></canvas>
-  <p class="help">Swing with your phone, or press F for forehand and B for backhand. First to 5 wins.</p>
+  <header>
+    <h1>PHONE TENNIS</h1>
+    <div class="hud-badge" id="round-badge">ROUND 1 OF 3 (7 PTS)</div>
+    <div class="hud-badge" id="score">Alex 0 — 0 Sam</div>
+    <span id="status">Waiting for game start...</span>
+  </header>
+  <canvas id="court" width="960" height="540" aria-label="Tennis court"></canvas>
+  <p class="help">Swing phone with precise timing! First to 7 points wins the round. Watch out for lines & out-of-bounds!</p>
 </main>
 <script src="lobby.js"></script>
 <script>
 (() => {
   const canvas = document.getElementById('court'), ctx = canvas.getContext('2d');
-  const scoreEl = document.getElementById('score'), statusEl = document.getElementById('status');
-  const W = canvas.width, H = canvas.height, MY_Y = H - 58, AI_Y = 58, HIT_ZONE = 130;
+  const scoreEl = document.getElementById('score'), statusEl = document.getElementById('status'), roundBadgeEl = document.getElementById('round-badge');
+  const W = canvas.width, H = canvas.height;
+
+  // Real Tennis Dimensions: Court oriented vertically (Length is long, Baseline width is narrower)
+  const COURT_TOP = 45;
+  const COURT_BOTTOM = 495;
+  const NET_Y = 270;
+  const DOUBLES_LEFT = 310;
+  const DOUBLES_RIGHT = 650;
+  const SINGLES_LEFT = 345;
+  const SINGLES_RIGHT = 615;
+  const SERVICE_TOP = 175;
+  const SERVICE_BOTTOM = 365;
+  const CENTER_X = 480;
+
+  const P1_BASELINE_Y = 475;
+  const P2_BASELINE_Y = 65;
+  const RACKET_WIDTH = 64;
+
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
+  // Match & Rounds State
   let gameMode = 'ai'; // 'ai' or 'pvp'
-  let ball = { x: W / 2, y: H / 2, vx: 3, vy: 3 };
-  let me = { x: W / 2 }, ai = { x: W / 2 }, score = { me: 0, ai: 0 };
-  let running = false, last = performance.now(), aiDelay = 0, aiTarget = W / 2, flash = 0;
+  let targetRounds = 3;
+  let currentRound = 1;
+  let roundsWon = { p1: 0, p2: 0 };
+  let roundsHistory = [];
+  let score = { p1: 0, p2: 0 }; // First to 7 points per round
+  let p1Name = 'Player 1';
+  let p2Name = 'Player 2';
+
+  // Ball State with 3D simulated depth (z = height)
+  let ball = { x: CENTER_X, y: NET_Y, z: 20, vx: 2, vy: 3, vz: 3, lastHitter: null, inFlight: false, bounced: false };
+  let me = { x: CENTER_X }, ai = { x: CENTER_X };
+  let p1Cooldown = 0, p2Cooldown = 0; // Anti-spam whiff timer
+  let p1SwingFlash = 0, p2SwingFlash = 0;
+
+  let running = false;
+  let last = performance.now();
+  let flash = 0;
+  let timingToast = { text: '', color: '#fff', life: 0 };
+  let bounceParticle = null;
+  let roundCelebration = { active: false, text: '', life: 0 };
+
   let matchStartTime = Date.now();
   let currentRally = 0, longestRally = 0;
 
+  // Fitness stats accumulated over all rounds
   let p1Stats = { swings: 0, hits: 0, forehands: 0, backhands: 0, peakPower: 0, totalPower: 0 };
   let p2Stats = { swings: 0, hits: 0, forehands: 0, backhands: 0, peakPower: 0, totalPower: 0 };
 
+  // Anti-spam swing handler with precision timing
   function onSwing(m) {
-    if (!running) return;
+    if (!running || roundCelebration.active) return;
     const player = (m && m.player === 2) ? 2 : 1;
     const power = clamp(Number(m.power) || 0, 0, 1);
     const dir = m.dir === 'backhand' ? 'backhand' : 'forehand';
 
     if (player === 1) {
+      if (p1Cooldown > 0) return; // Prevent spamming: in recovery cooldown
+      p1Cooldown = 28; // ~450ms cooldown
+      p1SwingFlash = 14;
       p1Stats.swings++;
       if (dir === 'forehand') p1Stats.forehands++; else p1Stats.backhands++;
       p1Stats.peakPower = Math.max(p1Stats.peakPower, power);
       p1Stats.totalPower += power;
 
-      if (ball.vy > 0 && Math.abs(ball.y - MY_Y) < HIT_ZONE) {
-        ball.vy = -(5 + 7 * power);
-        ball.vx = (dir === 'forehand' ? 1 : -1) * (2 + 3 * power) + (W / 2 - ball.x) * 0.01;
+      // Check if ball is in strike zone
+      const inYRange = ball.y > 390 && ball.y < 525 && ball.vy > 0;
+      const inXRange = Math.abs(ball.x - me.x) <= (RACKET_WIDTH / 2 + 20);
+
+      if (inYRange && inXRange) {
+        // Precision timing check
+        const diff = ball.y - P1_BASELINE_Y; // diff < -15 = Early, |diff| <= 15 = Perfect, diff > 15 = Late
+        let angleVx = 0;
+
+        if (Math.abs(diff) <= 16) {
+          // PERFECT TIMING!
+          timingToast = { text: '⚡ PERFECT!', color: '#c7f36b', life: 35 };
+          angleVx = (dir === 'forehand' ? 1.4 : -1.4) * (2.8 + 3.5 * power);
+          ball.vy = -(6.5 + 6.5 * power);
+        } else if (diff < -16) {
+          // EARLY SWING: Sharp cross-court
+          timingToast = { text: 'EARLY! (Cross-court)', color: '#ffe066', life: 30 };
+          angleVx = (dir === 'forehand' ? 1 : -1) * (4.2 + 4.0 * power); // risky wide angle
+          ball.vy = -(5.0 + 5.0 * power);
+        } else {
+          // LATE SWING: Down the line
+          timingToast = { text: 'LATE! (Down-line)', color: '#ffaa66', life: 30 };
+          angleVx = (dir === 'forehand' ? 0.4 : -0.4) * (2.0 + 2.0 * power);
+          ball.vy = -(5.0 + 4.0 * power);
+        }
+
+        ball.vx = angleVx + (CENTER_X - ball.x) * 0.008;
+        ball.vz = 4.5 + 2.0 * power;
+        ball.lastHitter = 1;
+        ball.bounced = false;
+
         p1Stats.hits++;
         currentRally++;
         longestRally = Math.max(longestRally, currentRally);
-        statusEl.textContent = 'Player 1: Nice return!';
-        flash = 12;
+        statusEl.textContent = `${p1Name}: Great Return!`;
+        flash = 8;
+      } else {
+        // Whiff / Air Swing!
+        timingToast = { text: 'WHIFF! (Missed timing)', color: '#ff6b6b', life: 30 };
       }
     } else if (player === 2 && gameMode === 'pvp') {
+      if (p2Cooldown > 0) return;
+      p2Cooldown = 28;
+      p2SwingFlash = 14;
       p2Stats.swings++;
       if (dir === 'forehand') p2Stats.forehands++; else p2Stats.backhands++;
       p2Stats.peakPower = Math.max(p2Stats.peakPower, power);
       p2Stats.totalPower += power;
 
-      if (ball.vy < 0 && Math.abs(ball.y - AI_Y) < HIT_ZONE) {
-        ball.vy = (5 + 7 * power);
-        ball.vx = (dir === 'forehand' ? 1 : -1) * (2 + 3 * power) + (W / 2 - ball.x) * 0.01;
+      const inYRange = ball.y < 150 && ball.y > 20 && ball.vy < 0;
+      const inXRange = Math.abs(ball.x - ai.x) <= (RACKET_WIDTH / 2 + 20);
+
+      if (inYRange && inXRange) {
+        const diff = P2_BASELINE_Y - ball.y;
+        let angleVx = 0;
+
+        if (Math.abs(diff) <= 16) {
+          timingToast = { text: '⚡ PERFECT!', color: '#f3a65a', life: 35 };
+          angleVx = (dir === 'forehand' ? 1.4 : -1.4) * (2.8 + 3.5 * power);
+          ball.vy = (6.5 + 6.5 * power);
+        } else if (diff < -16) {
+          timingToast = { text: 'EARLY!', color: '#ffe066', life: 30 };
+          angleVx = (dir === 'forehand' ? 1 : -1) * (4.2 + 4.0 * power);
+          ball.vy = (5.0 + 5.0 * power);
+        } else {
+          timingToast = { text: 'LATE!', color: '#ffaa66', life: 30 };
+          angleVx = (dir === 'forehand' ? 0.4 : -0.4) * (2.0 + 2.0 * power);
+          ball.vy = (5.0 + 4.0 * power);
+        }
+
+        ball.vx = angleVx + (CENTER_X - ball.x) * 0.008;
+        ball.vz = 4.5 + 2.0 * power;
+        ball.lastHitter = 2;
+        ball.bounced = false;
+
         p2Stats.hits++;
         currentRally++;
         longestRally = Math.max(longestRally, currentRally);
-        statusEl.textContent = 'Player 2: Great shot!';
-        flash = 12;
+        statusEl.textContent = `${p2Name}: Sharp Shot!`;
+        flash = 8;
+      } else {
+        timingToast = { text: 'WHIFF!', color: '#ff6b6b', life: 30 };
       }
     }
   }
@@ -94,157 +201,405 @@
     if (e.key === 'ArrowLeft' || k === 'j') onSwing({ player: 2, power: 0.75, dir: 'backhand' });
   });
 
-  function updateScoreDisplay() {
-    if (gameMode === 'pvp') {
-      scoreEl.textContent = `P1 ${score.me} — ${score.ai} P2`;
+  function updateHUD() {
+    roundBadgeEl.textContent = `ROUND ${currentRound} OF ${targetRounds} (FIRST TO 7 PTS)`;
+    scoreEl.textContent = `${p1Name} ${score.p1} — ${score.p2} ${p2Name}`;
+  }
+
+  function scorePoint(winner, reason) {
+    currentRally = 0;
+    if (winner === 1) {
+      score.p1++;
+      statusEl.textContent = `Point for ${p1Name}! (${reason})`;
     } else {
-      scoreEl.textContent = `YOU ${score.me} — ${score.ai} AI`;
+      score.p2++;
+      statusEl.textContent = `Point for ${p2Name}! (${reason})`;
+    }
+    updateHUD();
+
+    // Check if current round was won (First to 7 points)
+    if (score.p1 >= 7 || score.p2 >= 7) {
+      handleRoundEnd();
+    } else {
+      // Serve next ball after short delay
+      setTimeout(() => {
+        resetBall(winner === 1 ? 1 : 2);
+      }, 700);
     }
   }
 
-  function point(who) {
-    currentRally = 0;
-    score[who]++;
-    updateScoreDisplay();
-    running = score.me < 5 && score.ai < 5;
+  function handleRoundEnd() {
+    const roundWinnerName = score.p1 >= 7 ? p1Name : p2Name;
+    if (score.p1 >= 7) roundsWon.p1++; else roundsWon.p2++;
 
-    statusEl.textContent = running
-      ? (who === 'me' ? 'Point for Player 1!' : (gameMode === 'pvp' ? 'Point for Player 2!' : 'Point for AI!'))
-      : (score.me === 5 ? 'PLAYER 1 WINS THE MATCH!' : (gameMode === 'pvp' ? 'PLAYER 2 WINS THE MATCH!' : 'AI WINS THE MATCH!'));
+    roundsHistory.push({
+      round: currentRound,
+      p1Score: score.p1,
+      p2Score: score.p2,
+      winner: roundWinnerName
+    });
 
-    ball = { x: W / 2, y: H / 2, vx: (Math.random() - 0.5) * 3, vy: who === 'me' ? 3 : -3 };
+    // Check if match is over:
+    // If 1 round: ends now.
+    // If 2 rounds: ends after round 2.
+    // If 3 rounds: ends if someone has 2 wins, or after round 3.
+    const matchOver = (targetRounds === 1) ||
+                      (targetRounds === 2 && currentRound >= 2) ||
+                      (targetRounds === 3 && (roundsWon.p1 >= 2 || roundsWon.p2 >= 2 || currentRound >= 3));
 
-    if (!running && typeof window.showResults === 'function') {
-      const durationSec = Math.max(1, Math.round((Date.now() - matchStartTime) / 1000));
-      const report = {
-        mode: gameMode,
-        winner: score.me === 5 ? 'Player 1' : (gameMode === 'pvp' ? 'Player 2' : 'AI'),
-        score: { p1: score.me, p2: score.ai },
-        durationSeconds: durationSec,
-        longestRally: longestRally,
-        p1: {
-          name: 'Player 1',
-          swings: p1Stats.swings,
-          hits: p1Stats.hits,
-          accuracy: p1Stats.swings ? Math.round((p1Stats.hits / p1Stats.swings) * 100) : 0,
-          forehands: p1Stats.forehands,
-          backhands: p1Stats.backhands,
-          peakPower: Math.round(p1Stats.peakPower * 100),
-          peakSpeedKmh: Math.round(p1Stats.peakPower * 85 + 35),
-          avgPower: p1Stats.swings ? Math.round((p1Stats.totalPower / p1Stats.swings) * 100) : 0,
-          calories: Math.round(p1Stats.swings * 0.6 + durationSec * 0.08),
-          intensity: p1Stats.peakPower > 0.8 ? '🔥 High Intensity' : p1Stats.peakPower > 0.5 ? '⚡ Cardio Active' : '🎾 Moderate'
-        },
-        p2: {
-          name: gameMode === 'pvp' ? 'Player 2' : 'AI Bot',
-          swings: p2Stats.swings,
-          hits: p2Stats.hits,
-          accuracy: p2Stats.swings ? Math.round((p2Stats.hits / p2Stats.swings) * 100) : 0,
-          forehands: p2Stats.forehands,
-          backhands: p2Stats.backhands,
-          peakPower: Math.round(p2Stats.peakPower * 100),
-          peakSpeedKmh: Math.round(p2Stats.peakPower * 85 + 35),
-          avgPower: p2Stats.swings ? Math.round((p2Stats.totalPower / p2Stats.swings) * 100) : 0,
-          calories: Math.round(p2Stats.swings * 0.6 + durationSec * 0.08),
-          intensity: p2Stats.peakPower > 0.8 ? '🔥 High Intensity' : p2Stats.peakPower > 0.5 ? '⚡ Cardio Active' : '🎾 Moderate'
-        }
+    if (matchOver) {
+      running = false;
+      finishMatch();
+    } else {
+      // Advance to next round
+      roundCelebration = {
+        active: true,
+        text: `ROUND ${currentRound} WON BY ${roundWinnerName.toUpperCase()}!`,
+        life: 110
       };
+      currentRound++;
+      score = { p1: 0, p2: 0 };
+      updateHUD();
+      setTimeout(() => {
+        roundCelebration.active = false;
+        resetBall(1);
+      }, 2200);
+    }
+  }
+
+  function finishMatch() {
+    const overallWinner = roundsWon.p1 > roundsWon.p2 ? p1Name : (roundsWon.p2 > roundsWon.p1 ? p2Name : (score.p1 > score.p2 ? p1Name : p2Name));
+    const durationSec = Math.max(1, Math.round((Date.now() - matchStartTime) / 1000));
+
+    const report = {
+      mode: gameMode,
+      winner: overallWinner,
+      targetRounds: targetRounds,
+      roundsWon: { p1: roundsWon.p1, p2: roundsWon.p2 },
+      rounds: roundsHistory,
+      durationSeconds: durationSec,
+      longestRally: longestRally,
+      p1: {
+        name: p1Name,
+        swings: p1Stats.swings,
+        hits: p1Stats.hits,
+        accuracy: p1Stats.swings ? Math.round((p1Stats.hits / p1Stats.swings) * 100) : 0,
+        forehands: p1Stats.forehands,
+        backhands: p1Stats.backhands,
+        peakPower: Math.round(p1Stats.peakPower * 100),
+        peakSpeedKmh: Math.round(p1Stats.peakPower * 85 + 35),
+        avgPower: p1Stats.swings ? Math.round((p1Stats.totalPower / p1Stats.swings) * 100) : 0,
+        calories: Math.round(p1Stats.swings * 0.6 + durationSec * 0.08),
+        intensity: p1Stats.peakPower > 0.8 ? '🔥 High Intensity' : p1Stats.peakPower > 0.5 ? '⚡ Cardio Active' : '🎾 Moderate'
+      },
+      p2: {
+        name: p2Name,
+        swings: p2Stats.swings,
+        hits: p2Stats.hits,
+        accuracy: p2Stats.swings ? Math.round((p2Stats.hits / p2Stats.swings) * 100) : 0,
+        forehands: p2Stats.forehands,
+        backhands: p2Stats.backhands,
+        peakPower: Math.round(p2Stats.peakPower * 100),
+        peakSpeedKmh: Math.round(p2Stats.peakPower * 85 + 35),
+        avgPower: p2Stats.swings ? Math.round((p2Stats.totalPower / p2Stats.swings) * 100) : 0,
+        calories: Math.round(p2Stats.swings * 0.6 + durationSec * 0.08),
+        intensity: p2Stats.peakPower > 0.8 ? '🔥 High Intensity' : p2Stats.peakPower > 0.5 ? '⚡ Cardio Active' : '🎾 Moderate'
+      }
+    };
+
+    if (window.showResults) {
       window.showResults(report);
     }
   }
 
-  function reset(mode) {
-    if (mode) gameMode = mode;
-    score = { me: 0, ai: 0 };
+  function resetBall(server) {
+    ball.x = CENTER_X + (Math.random() - 0.5) * 60;
+    ball.y = server === 1 ? (P1_BASELINE_Y - 30) : (P2_BASELINE_Y + 30);
+    ball.z = 24;
+    ball.vx = (Math.random() - 0.5) * 2;
+    ball.vy = server === 1 ? -4.5 : 4.5;
+    ball.vz = 3.5;
+    ball.lastHitter = server;
+    ball.bounced = false;
+  }
+
+  function resetMatch(opts) {
+    if (opts) {
+      gameMode = opts.mode || 'ai';
+      targetRounds = opts.targetRounds || 3;
+      p1Name = opts.p1Name || 'Player 1';
+      p2Name = opts.p2Name || (gameMode === 'pvp' ? 'Player 2' : 'AI Nadal');
+    }
+    currentRound = 1;
+    roundsWon = { p1: 0, p2: 0 };
+    roundsHistory = [];
+    score = { p1: 0, p2: 0 };
     p1Stats = { swings: 0, hits: 0, forehands: 0, backhands: 0, peakPower: 0, totalPower: 0 };
     p2Stats = { swings: 0, hits: 0, forehands: 0, backhands: 0, peakPower: 0, totalPower: 0 };
     currentRally = 0;
     longestRally = 0;
     matchStartTime = Date.now();
-    updateScoreDisplay();
+    updateHUD();
     running = true;
-    statusEl.textContent = 'Match Started! Swing to play!';
-    ball = { x: W / 2, y: H / 2, vx: 2.5, vy: 3 };
+    roundCelebration.active = false;
+    resetBall(1);
   }
 
   window.onGameStart = opts => {
-    reset(opts?.mode);
+    resetMatch(opts);
   };
 
+  // Main Render & Physics Loop
   function draw(now) {
     const dt = Math.min((now - last) / 16.67, 2);
     last = now;
+
+    // Cooldown ticks
+    if (p1Cooldown > 0) p1Cooldown -= dt;
+    if (p2Cooldown > 0) p2Cooldown -= dt;
+    if (p1SwingFlash > 0) p1SwingFlash--;
+    if (p2SwingFlash > 0) p2SwingFlash--;
+
     ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = '#236b4d';
+
+    // 1. Surrounding Grass/Run-off area
+    ctx.fillStyle = '#103020';
     ctx.fillRect(0, 0, W, H);
 
-    // Court boundary lines & net
-    ctx.strokeStyle = 'rgba(255,255,255,.75)';
+    // 2. Main Court Surface (Oriented vertically: Length is long, Baseline is width)
+    ctx.fillStyle = '#1e5b8a'; // Classic US Open Blue court
+    ctx.fillRect(DOUBLES_LEFT, COURT_TOP, DOUBLES_RIGHT - DOUBLES_LEFT, COURT_BOTTOM - COURT_TOP);
+
+    // 3. Court Lines (White, crisp 3px lines)
+    ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 3;
-    ctx.strokeRect(90, 30, W - 180, H - 60);
+
+    // Doubles outer border
+    ctx.strokeRect(DOUBLES_LEFT, COURT_TOP, DOUBLES_RIGHT - DOUBLES_LEFT, COURT_BOTTOM - COURT_TOP);
+
+    // Singles sidelines
     ctx.beginPath();
-    ctx.moveTo(90, H / 2);
-    ctx.lineTo(W - 90, H / 2);
-    ctx.moveTo(W / 2, 30);
-    ctx.lineTo(W / 2, H - 30);
+    ctx.moveTo(SINGLES_LEFT, COURT_TOP);
+    ctx.lineTo(SINGLES_LEFT, COURT_BOTTOM);
+    ctx.moveTo(SINGLES_RIGHT, COURT_TOP);
+    ctx.lineTo(SINGLES_RIGHT, COURT_BOTTOM);
     ctx.stroke();
 
-    if (running) {
-      // Bottom racket auto-tracking to ball
-      me.x += clamp(ball.x - me.x, -6 * dt, 6 * dt);
+    // Service lines
+    ctx.beginPath();
+    ctx.moveTo(SINGLES_LEFT, SERVICE_TOP);
+    ctx.lineTo(SINGLES_RIGHT, SERVICE_TOP);
+    ctx.moveTo(SINGLES_LEFT, SERVICE_BOTTOM);
+    ctx.lineTo(SINGLES_RIGHT, SERVICE_BOTTOM);
+    ctx.stroke();
 
+    // Center service line
+    ctx.beginPath();
+    ctx.moveTo(CENTER_X, SERVICE_TOP);
+    ctx.lineTo(CENTER_X, SERVICE_BOTTOM);
+    ctx.stroke();
+
+    // Center hash marks on baselines
+    ctx.beginPath();
+    ctx.moveTo(CENTER_X, COURT_TOP);
+    ctx.lineTo(CENTER_X, COURT_TOP + 12);
+    ctx.moveTo(CENTER_X, COURT_BOTTOM - 12);
+    ctx.lineTo(CENTER_X, COURT_BOTTOM);
+    ctx.stroke();
+
+    // 4. Tennis Net (Horizontally dividing court at NET_Y)
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(DOUBLES_LEFT - 16, NET_Y);
+    ctx.lineTo(DOUBLES_RIGHT + 16, NET_Y);
+    ctx.stroke();
+
+    // Net mesh effect
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.lineWidth = 1;
+    for (let x = DOUBLES_LEFT - 10; x <= DOUBLES_RIGHT + 10; x += 10) {
+      ctx.beginPath();
+      ctx.moveTo(x, NET_Y - 4);
+      ctx.lineTo(x, NET_Y + 4);
+      ctx.stroke();
+    }
+    // Net posts
+    ctx.fillStyle = '#f3a65a';
+    ctx.fillRect(DOUBLES_LEFT - 20, NET_Y - 6, 8, 12);
+    ctx.fillRect(DOUBLES_RIGHT + 12, NET_Y - 6, 8, 12);
+
+    // Game Physics & Ball updates
+    if (running && !roundCelebration.active) {
+      // Auto-glide Player 1 racket smoothly towards ball x within bounds
+      const targetP1X = clamp(ball.x, SINGLES_LEFT - 10, SINGLES_RIGHT + 10);
+      me.x += clamp(targetP1X - me.x, -5.5 * dt, 5.5 * dt);
+
+      // AI Movement (Nerfed to human reaction & speed)
       if (gameMode === 'ai') {
-        // AI tracking & returning
-        aiDelay -= dt;
-        if (aiDelay <= 0) {
-          aiTarget = ball.x + (Math.random() - 0.5) * 80;
-          aiDelay = 16 + Math.random() * 20;
+        // AI only reacts when ball is heading towards its side
+        if (ball.vy < 0) {
+          // Human-like speed limit: 3.1 * dt
+          const targetAIX = clamp(ball.x, SINGLES_LEFT, SINGLES_RIGHT);
+          ai.x += clamp(targetAIX - ai.x, -3.1 * dt, 3.1 * dt);
         }
-        ai.x += clamp(aiTarget - ai.x, -3.8 * dt, 3.8 * dt);
+
+        // AI Return Check: Ball must actually collide with AI racket!
+        const aiHitZone = ball.y <= (P2_BASELINE_Y + 22) && ball.y >= (P2_BASELINE_Y - 10) && ball.vy < 0;
+        const aiAligned = Math.abs(ball.x - ai.x) <= (RACKET_WIDTH / 2 + 10);
+
+        if (aiHitZone) {
+          if (aiAligned) {
+            // AI hits with a slight human error chance
+            const unforcedError = Math.random() < 0.12; // 12% error rate on hard shots
+            if (unforcedError) {
+              // Hits wide/out!
+              ball.vx = (Math.random() > 0.5 ? 1 : -1) * 4.8;
+            } else {
+              ball.vx = clamp((ball.x - CENTER_X) * 0.01 + (Math.random() - 0.5) * 2.5, -3.5, 3.5);
+            }
+            ball.vy = Math.abs(ball.vy);
+            ball.vz = 4.2;
+            ball.lastHitter = 2;
+            ball.bounced = false;
+            p2Stats.hits++;
+            p2Stats.swings++;
+            currentRally++;
+            longestRally = Math.max(longestRally, currentRally);
+          } else {
+            // AI was out of position: Player hits a clean winner!
+            timingToast = { text: '🎾 CLEAN WINNER!', color: '#c7f36b', life: 40 };
+          }
+        }
       } else {
-        // In PvP, top racket glides smoothly towards ball for Player 2
-        ai.x += clamp(ball.x - ai.x, -5.5 * dt, 5.5 * dt);
+        // In PvP, top paddle glides smoothly for Player 2 positioning
+        const targetP2X = clamp(ball.x, SINGLES_LEFT - 10, SINGLES_RIGHT + 10);
+        ai.x += clamp(targetP2X - ai.x, -5.5 * dt, 5.5 * dt);
       }
 
+      // Ball Trajectory & Simulated Height/Arc
       ball.x += ball.vx * dt;
       ball.y += ball.vy * dt;
+      ball.z += ball.vz * dt;
+      ball.vz -= 0.18 * dt; // gravity
 
-      // Wall bounce
-      if (ball.x < 100 || ball.x > W - 100) ball.vx *= -1;
+      // Check Ball Bounce on Ground
+      if (ball.z <= 0) {
+        ball.z = 0;
+        ball.vz = Math.abs(ball.vz) * 0.72; // bounce dampening
 
-      // AI return in AI mode
-      if (gameMode === 'ai' && ball.vy < 0 && ball.y <= AI_Y + 18) {
-        ball.vy = Math.abs(ball.vy);
-        ball.vx = clamp(ai.x - ball.x, -5, 5) + (Math.random() - 0.5) * 2;
-        p2Stats.hits++;
-        p2Stats.swings++;
-        currentRally++;
-        longestRally = Math.max(longestRally, currentRally);
+        // OUT-OF-BOUNDS CHECK ON BOUNCE:
+        // Must land between singles sidelines and between baseline and net
+        const isSidelineOut = ball.x < SINGLES_LEFT || ball.x > SINGLES_RIGHT;
+        const isHitterP1 = ball.lastHitter === 1;
+
+        // Long baseline out check
+        const isBaselineOut = isHitterP1 ? (ball.y < COURT_TOP) : (ball.y > COURT_BOTTOM);
+
+        if (isSidelineOut || isBaselineOut) {
+          // BALL IS OUT!
+          bounceParticle = { x: ball.x, y: ball.y, isOut: true, life: 30 };
+          timingToast = { text: '🔴 OUT!', color: '#ff6b6b', life: 45 };
+          scorePoint(isHitterP1 ? 2 : 1, 'Ball hit OUT');
+        } else {
+          // BALL IS IN!
+          bounceParticle = { x: ball.x, y: ball.y, isOut: false, life: 25 };
+          ball.bounced = true;
+        }
       }
 
-      // Ball misses: Out of bounds
-      if (ball.y > MY_Y + 24) point('ai');
-      if (ball.y < AI_Y - 24) point('me');
+      // If ball passes way beyond baseline without being hit:
+      if (ball.y > COURT_BOTTOM + 32) {
+        // Missed by bottom player (P1)
+        scorePoint(2, 'Missed baseline return');
+      } else if (ball.y < COURT_TOP - 32) {
+        // Missed by top player (P2/AI)
+        scorePoint(1, 'Missed baseline return');
+      }
     }
 
-    // Draw paddles (Player 1 = Green, Player 2/AI = Orange)
-    ctx.fillStyle = '#eaff8a';
-    ctx.fillRect(me.x - 42, MY_Y, 84, 14);
+    // 5. Draw Bounce Particle / Chalk Mark
+    if (bounceParticle && bounceParticle.life > 0) {
+      ctx.fillStyle = bounceParticle.isOut ? 'rgba(255, 80, 80, 0.8)' : 'rgba(255, 255, 255, 0.85)';
+      ctx.beginPath();
+      ctx.arc(bounceParticle.x, bounceParticle.y, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = bounceParticle.isOut ? '#ff3333' : '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(bounceParticle.x, bounceParticle.y, 14, 0, Math.PI * 2);
+      ctx.stroke();
+      bounceParticle.life--;
+    }
 
+    // 6. Draw Player Rackets
+    // Player 1 Racket (Green)
+    ctx.fillStyle = p1SwingFlash > 0 ? '#ffffff' : '#c7f36b';
+    ctx.fillRect(me.x - RACKET_WIDTH / 2, P1_BASELINE_Y, RACKET_WIDTH, 12);
+    // Player 1 label
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillStyle = '#c7f36b';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${p1Name} (P1)`, me.x, P1_BASELINE_Y + 26);
+
+    // Player 2 / AI Racket (Orange)
+    ctx.fillStyle = p2SwingFlash > 0 ? '#ffffff' : '#f3a65a';
+    ctx.fillRect(ai.x - RACKET_WIDTH / 2, P2_BASELINE_Y, RACKET_WIDTH, 12);
+    // Player 2 label
     ctx.fillStyle = '#f3a65a';
-    ctx.fillRect(ai.x - 42, AI_Y, 84, 14);
+    ctx.fillText(`${p2Name} (P2)`, ai.x, P2_BASELINE_Y - 14);
 
-    // Draw ball
-    ctx.fillStyle = '#fff36b';
+    // 7. Draw Ball Shadow & Ball
+    // Shadow (on ground)
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
     ctx.beginPath();
-    ctx.arc(ball.x, ball.y, 11, 0, Math.PI * 2);
+    ctx.ellipse(ball.x, ball.y, 8, 4, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Hit flash effect
+    // Ball (elevated by z height)
+    const ballScreenY = ball.y - ball.z;
+    const ballRadius = Math.max(7, 10 + ball.z * 0.15);
+    ctx.fillStyle = '#fff45c'; // Tennis optic yellow
+    ctx.beginPath();
+    ctx.arc(ball.x, ballScreenY, ballRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#222';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // 8. Timing / Match Feedback Toast
+    if (timingToast.life > 0) {
+      ctx.font = 'bold 24px sans-serif';
+      ctx.fillStyle = timingToast.color;
+      ctx.textAlign = 'center';
+      ctx.shadowColor = 'rgba(0,0,0,0.8)';
+      ctx.shadowBlur = 8;
+      ctx.fillText(timingToast.text, CENTER_X, NET_Y - 45);
+      ctx.shadowBlur = 0;
+      timingToast.life--;
+    }
+
+    // 9. Round Win Celebration Overlay
+    if (roundCelebration.active && roundCelebration.life > 0) {
+      ctx.fillStyle = 'rgba(7, 22, 15, 0.78)';
+      ctx.fillRect(0, 0, W, H);
+
+      ctx.font = 'bold 36px sans-serif';
+      ctx.fillStyle = '#c7f36b';
+      ctx.textAlign = 'center';
+      ctx.fillText(roundCelebration.text, CENTER_X, H / 2 - 20);
+
+      ctx.font = 'bold 20px sans-serif';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(`Sets Won: ${p1Name} (${roundsWon.p1}) — (${roundsWon.p2}) ${p2Name}`, CENTER_X, H / 2 + 25);
+      roundCelebration.life--;
+    }
+
+    // Hit screen flash
     if (flash > 0) {
-      ctx.strokeStyle = 'rgba(255,255,255,' + (flash / 16) + ')';
-      ctx.lineWidth = 10;
-      ctx.strokeRect(5, 5, W - 10, H - 10);
+      ctx.strokeStyle = 'rgba(255,255,255,' + (flash / 12) + ')';
+      ctx.lineWidth = 8;
+      ctx.strokeRect(4, 4, W - 8, H - 8);
       flash--;
     }
 

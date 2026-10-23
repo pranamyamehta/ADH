@@ -56,6 +56,24 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    if (message.type === 'set_name' && Number.isFinite(ws.player) && ws.roomCode) {
+      const room = rooms.get(ws.roomCode);
+      if (!room || !room.tv || room.tv.readyState !== WebSocket.OPEN) return;
+      const cleanName = String(message.name || '').trim().slice(0, 20) || `Player ${ws.player}`;
+      ws.playerName = cleanName;
+      send(room.tv, {
+        type: 'player_name',
+        player: ws.player,
+        name: cleanName
+      });
+      send(ws, {
+        type: 'player_name',
+        player: ws.player,
+        name: cleanName
+      });
+      return;
+    }
+
     if (message.type === 'swing' && Number.isFinite(ws.player) && ws.roomCode) {
       const room = rooms.get(ws.roomCode);
       if (!room || room.tv.readyState !== WebSocket.OPEN) return;

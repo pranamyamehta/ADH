@@ -67,7 +67,7 @@
     .btn-p1 { background: var(--accent-p1); color: #0d251c; }
     .btn-secondary { background: rgba(255,255,255,0.12); color: #fff; border: 1px solid var(--border); }
 
-    /* Code Input */
+    /* Inputs */
     .code-input {
       width: 100%;
       background: rgba(0, 0, 0, 0.35);
@@ -83,7 +83,20 @@
       margin: 12px 0 16px;
       outline: none;
     }
-    .code-input:focus { border-color: var(--accent-p1); }
+    .name-input {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.35);
+      border: 2px solid rgba(199, 243, 107, 0.4);
+      border-radius: 14px;
+      font-size: 1.4rem;
+      font-weight: 700;
+      text-align: center;
+      color: #fff;
+      padding: 14px;
+      margin: 14px 0 18px;
+      outline: none;
+    }
+    .name-input:focus, .code-input:focus { border-color: var(--accent-p1); }
 
     /* Status badge */
     .status-badge {
@@ -123,11 +136,24 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 10px 0;
+      padding: 9px 0;
       border-bottom: 1px solid rgba(255,255,255,0.08);
-      font-size: 1rem;
+      font-size: 0.95rem;
     }
     .stat-val { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+    .round-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0;
+      font-size: 0.95rem;
+    }
+    .round-table th, .round-table td {
+      padding: 8px 12px;
+      text-align: center;
+      border: 1px solid rgba(255,255,255,0.12);
+    }
+    .round-table th { background: rgba(255,255,255,0.06); font-weight: 700; color: #c7f36b; }
 
     /* Camera Scanner Overlay */
     #scanner-overlay {
@@ -138,7 +164,7 @@
     }
     #qr-video-box { width: 100%; max-width: 380px; aspect-ratio: 1; border-radius: 20px; overflow: hidden; }
 
-    #log { max-height: 120px; overflow-y: auto; text-align: left; padding-left: 24px; margin: 0; font-size: 0.85rem; color: #a4ceb5; }
+    #log { max-height: 100px; overflow-y: auto; text-align: left; padding-left: 24px; margin: 0; font-size: 0.85rem; color: #a4ceb5; }
   </style>
 </head>
 <body>
@@ -180,6 +206,27 @@
     </section>
 
 
+    <!-- SCREEN 1.5: ENTER PLAYER NAME -->
+    <section id="screen-name" class="screen hidden">
+      <div style="text-align:center; margin-top: 10px;">
+        <span style="font-size: 40px;">👤</span>
+        <h1 style="margin: 6px 0; font-size: 1.8rem;">Player Registration</h1>
+        <p style="margin: 0; color: #a4ceb5; font-size: 0.95rem;">Enter your name for the TV scoreboard & report card</p>
+      </div>
+
+      <div class="card">
+        <label for="player-name-input" style="font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; color: #a2caa9;">
+          Your Tennis Name / Nickname
+        </label>
+        <input id="player-name-input" class="name-input" type="text" maxlength="16" placeholder="e.g. Roger, Alex, Ace..." autocomplete="off">
+
+        <button id="btn-confirm-name" class="btn btn-p1" type="button">
+          🎾 Enter Tennis Court →
+        </button>
+      </div>
+    </section>
+
+
     <!-- SCREEN 2: ACTIVE GAME CONTROLLER -->
     <section id="screen-controller" class="screen hidden">
       <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -203,10 +250,10 @@
           <div class="meter-unit">LIVE MAGNITUDE</div>
         </div>
         <div id="swing-hint" style="font-size: 1.15rem; font-weight: 700; color: #fff; margin-top: 6px;">
-          Hold securely & swing!
+          Time your swing!
         </div>
         <div style="font-size: 0.85rem; color: #9bc3a6; margin-top: 4px;">
-          Swing power & direction (Forehand / Backhand)
+          Swing precisely when ball reaches racket (no spamming)
         </div>
       </div>
 
@@ -239,19 +286,26 @@
       <div style="text-align:center;">
         <div style="font-size: 42px;">🏆</div>
         <h1 id="report-title" style="margin: 4px 0; font-size: 1.7rem;">Match Report Card</h1>
-        <div id="report-score-banner" class="status-badge status-paired" style="font-size:1.1rem; padding: 6px 18px;">
-          Score: 5 — 3
+        <div id="report-score-banner" class="status-badge status-paired" style="font-size:1.05rem; padding: 6px 18px;">
+          Match Won
         </div>
       </div>
 
-      <div class="card" style="text-align:left;">
+      <!-- Structured Round by Round Table -->
+      <div class="card" style="text-align:left; padding: 16px;">
+        <h2 style="margin: 0 0 8px; font-size: 1.15rem; color: var(--accent-p1);">Rounds Summary (First to 7 pts)</h2>
+        <div id="rounds-table-container"></div>
+      </div>
+
+      <!-- Fitness Breakdown Card -->
+      <div class="card" style="text-align:left; padding: 16px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
-          <h2 style="margin: 0; font-size: 1.25rem; color: var(--accent-p1);">Your Fitness Summary</h2>
+          <h2 style="margin: 0; font-size: 1.15rem; color: var(--accent-p1);" id="rep-player-heading">Fitness Report</h2>
           <span id="report-intensity" class="status-badge" style="font-size:0.75rem; padding: 4px 10px;">Cardio Burn</span>
         </div>
 
         <div class="stat-row">
-          <span>🔥 Active Calories Burned</span>
+          <span>🔥 Total Energy Expended</span>
           <span id="rep-calories" class="stat-val" style="color:var(--accent-p1);">-- kcal</span>
         </div>
         <div class="stat-row">
@@ -271,7 +325,7 @@
           <span id="rep-power" class="stat-val">--%</span>
         </div>
         <div class="stat-row" style="border:none;">
-          <span>⏱️ Match Duration</span>
+          <span>⏱️ Total Match Duration</span>
           <span id="rep-duration" class="stat-val">--s</span>
         </div>
       </div>
@@ -304,12 +358,13 @@
   <script>
     (function () {
       const DIRECTION_AXIS = 'alpha';
-      const MIN_SWING_GAP_MS = 380;
+      const MIN_SWING_GAP_MS = 450; // Prevent swing spamming
       const GRAVITY = 9.8;
-      const threshold = 15;
+      const threshold = 16;
 
       let socket = null;
       let playerNumber = null;
+      let playerName = '';
       let currentRoom = '';
       let currentMode = 'ai';
       let listening = false;
@@ -324,6 +379,7 @@
 
       // DOM Elements
       const screenPairing = document.getElementById('screen-pairing');
+      const screenName = document.getElementById('screen-name');
       const screenController = document.getElementById('screen-controller');
       const screenReport = document.getElementById('screen-report');
       const scannerOverlay = document.getElementById('scanner-overlay');
@@ -334,13 +390,15 @@
       const btnCloseScanner = document.getElementById('btn-close-scanner');
       const pairStatus = document.getElementById('pair-status');
 
+      const playerNameInput = document.getElementById('player-name-input');
+      const btnConfirmName = document.getElementById('btn-confirm-name');
+
       const playerTag = document.getElementById('player-tag');
       const roomTag = document.getElementById('room-tag');
       const pvpWaitingBox = document.getElementById('pvp-waiting-box');
       const btnMotion = document.getElementById('btn-motion');
       const magnitudeEl = document.getElementById('magnitude');
       const swingHint = document.getElementById('swing-hint');
-      const swingMeter = document.getElementById('swing-meter');
       const liveSwings = document.getElementById('live-swings');
       const liveCalories = document.getElementById('live-calories');
       const livePeak = document.getElementById('live-peak');
@@ -410,7 +468,7 @@
         });
 
         socket.addEventListener('close', () => {
-          if (screenController.classList.contains('hidden') === false) {
+          if (!screenController.classList.contains('hidden')) {
             showPairStatus('Disconnected from TV. Reconnecting...', 'waiting');
           }
         });
@@ -424,22 +482,42 @@
         showPairStatus(`✅ PAIRED: Connected as Player ${playerNumber}`, 'paired');
         if (navigator.vibrate) navigator.vibrate(120);
 
+        // Transition to Name Registration screen
         setTimeout(() => {
           screenPairing.classList.add('hidden');
           screenReport.classList.add('hidden');
-          screenController.classList.remove('hidden');
+          screenName.classList.remove('hidden');
 
-          playerTag.textContent = playerNumber === 1 ? '🟢 Player 1 (Green)' : '🟠 Player 2 (Orange)';
-          playerTag.className = 'status-badge ' + (playerNumber === 1 ? 'status-paired' : 'status-waiting');
-          roomTag.textContent = 'ROOM: ' + currentRoom;
-
-          if (currentMode === 'pvp' && playerNumber === 1) {
-            pvpWaitingBox.classList.remove('hidden');
-          } else {
-            pvpWaitingBox.classList.add('hidden');
-          }
+          playerNameInput.value = `Player ${playerNumber}`;
+          playerNameInput.focus();
         }, 500);
       }
+
+      btnConfirmName.addEventListener('click', () => {
+        const val = playerNameInput.value.trim() || `Player ${playerNumber}`;
+        playerName = val;
+
+        if (socket && socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({
+            type: 'set_name',
+            name: playerName,
+            player: playerNumber
+          }));
+        }
+
+        screenName.classList.add('hidden');
+        screenController.classList.remove('hidden');
+
+        playerTag.textContent = `${playerNumber === 1 ? '🟢' : '🟠'} ${playerName}`;
+        playerTag.className = 'status-badge ' + (playerNumber === 1 ? 'status-paired' : 'status-waiting');
+        roomTag.textContent = 'ROOM: ' + currentRoom;
+
+        if (currentMode === 'pvp' && playerNumber === 1) {
+          pvpWaitingBox.classList.remove('hidden');
+        } else {
+          pvpWaitingBox.classList.add('hidden');
+        }
+      });
 
       function onMatchRestart() {
         // Reset swing counters
@@ -453,7 +531,7 @@
         screenReport.classList.add('hidden');
         screenController.classList.remove('hidden');
         if (navigator.vibrate) navigator.vibrate([80, 50, 80]);
-        swingHint.textContent = 'New match started! Swing!';
+        swingHint.textContent = 'New match started! Time your swing!';
       }
 
       // Camera QR Scanner integration
@@ -466,7 +544,6 @@
           { facingMode: "environment" },
           { fps: 10, qrbox: { width: 250, height: 250 } },
           (decodedText) => {
-            // Found QR Code!
             try {
               const url = new URL(decodedText);
               const scannedCode = url.searchParams.get('code');
@@ -477,7 +554,6 @@
                 return;
               }
             } catch (_err) {
-              // Not a full URL, treat as raw room code if 4 letters
               if (decodedText.length === 4) {
                 closeScanner();
                 roomInput.value = decodedText.toUpperCase();
@@ -486,7 +562,7 @@
               }
             }
           },
-          () => {} // ignore frame scan errors
+          () => {}
         ).catch(err => {
           alert("Camera access failed or unavailable: " + err);
           closeScanner();
@@ -519,6 +595,7 @@
         magnitudeEl.textContent = mag.toFixed(1);
 
         const now = Date.now();
+        // Timing window: prevent spamming
         if (mag <= threshold || now - lastSwingAt < MIN_SWING_GAP_MS) return;
         lastSwingAt = now;
 
@@ -548,9 +625,9 @@
         if (navigator.vibrate) navigator.vibrate(50);
 
         const item = document.createElement('li');
-        item.textContent = `${direction} · power ${(power * 100).toFixed(0)}% · ${mag.toFixed(1)} m/s²`;
+        item.textContent = `${direction} · ${(power * 100).toFixed(0)}% power · ${mag.toFixed(1)} m/s²`;
         log.insertBefore(item, log.firstChild);
-        while (log.children.length > 8) log.removeChild(log.lastChild);
+        while (log.children.length > 6) log.removeChild(log.lastChild);
       }
 
       btnMotion.addEventListener('click', async () => {
@@ -573,7 +650,7 @@
           }
           window.addEventListener('devicemotion', handleMotion);
           listening = true;
-          btnMotion.textContent = '🎾 Motion Racket Enabled';
+          btnMotion.textContent = '🎾 Motion Racket Active';
           btnMotion.style.background = 'rgba(255,255,255,0.1)';
           btnMotion.disabled = true;
         }
@@ -589,13 +666,27 @@
         if (navigator.vibrate) navigator.vibrate([150, 80, 150]);
 
         const myStats = (playerNumber === 2 && report.p2) ? report.p2 : (report.p1 || {});
-        const p1Score = report.score?.p1 || 0;
-        const p2Score = report.score?.p2 || 0;
+        const p1Name = report.p1?.name || 'Player 1';
+        const p2Name = report.p2?.name || (report.mode === 'pvp' ? 'Player 2' : 'AI');
 
-        const won = (playerNumber === 1 && p1Score > p2Score) || (playerNumber === 2 && p2Score > p1Score);
-        document.getElementById('report-title').textContent = won ? '🏆 Victory! You Won!' : '🎾 Good Match!';
-        document.getElementById('report-score-banner').textContent = `Final Score: P1 (${p1Score}) — (${p2Score}) P2`;
+        const won = (playerNumber === 1 && report.winner === p1Name) || (playerNumber === 2 && report.winner === p2Name);
+        document.getElementById('report-title').textContent = won ? '🏆 VICTORY! YOU WON!' : '🎾 GOOD MATCH!';
+        document.getElementById('report-score-banner').textContent = `Match Champion: ${report.winner} (${report.roundsWon?.p1 || 0} - ${report.roundsWon?.p2 || 0} Sets)`;
 
+        // Build Round by Round table
+        const roundsTableBox = document.getElementById('rounds-table-container');
+        if (report.rounds && report.rounds.length > 0) {
+          let html = `<table class="round-table"><thead><tr><th>Round</th><th>${p1Name}</th><th>${p2Name}</th><th>Winner</th></tr></thead><tbody>`;
+          report.rounds.forEach(r => {
+            html += `<tr><td>Round ${r.round}</td><td><strong>${r.p1Score}</strong></td><td><strong>${r.p2Score}</strong></td><td style="color:#c7f36b;">${r.winner}</td></tr>`;
+          });
+          html += `</tbody></table>`;
+          roundsTableBox.innerHTML = html;
+        } else {
+          roundsTableBox.innerHTML = `<p style="margin:4px 0; color:#a4ceb5;">Final Score: ${p1Name} ${report.score?.p1 || 0} — ${report.score?.p2 || 0} ${p2Name}</p>`;
+        }
+
+        document.getElementById('rep-player-heading').textContent = `${playerName || myStats.name || 'Player'}'s Fitness Summary`;
         document.getElementById('report-intensity').textContent = myStats.intensity || 'Cardio Zone';
         document.getElementById('rep-calories').textContent = `~${myStats.calories || Math.round(swingCount * 0.6)} kcal`;
         document.getElementById('rep-swings').textContent = `${myStats.swings || swingCount} (${myStats.forehands || 0}F / ${myStats.backhands || 0}B)`;
@@ -615,6 +706,9 @@
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
         const myStats = (playerNumber === 2 && latestReport.p2) ? latestReport.p2 : (latestReport.p1 || {});
+        const p1Name = latestReport.p1?.name || 'Player 1';
+        const p2Name = latestReport.p2?.name || 'Player 2';
+        const activeName = playerName || myStats.name || `Player ${playerNumber}`;
 
         // Header Background
         doc.setFillColor(13, 37, 28);
@@ -622,76 +716,97 @@
 
         // Header Text
         doc.setTextColor(199, 243, 107);
-        doc.setFontSize(24);
+        doc.setFontSize(22);
         doc.setFont('helvetica', 'bold');
-        doc.text('PHONE TENNIS - MATCH & FITNESS REPORT', 20, 22);
+        doc.text('PHONE TENNIS - OFFICIAL MATCH REPORT', 20, 20);
 
         doc.setTextColor(240, 255, 245);
-        doc.setFontSize(12);
+        doc.setFontSize(11);
         doc.setFont('helvetica', 'normal');
-        doc.text(`Official Player Report Card · Room ${currentRoom} · Mode: ${latestReport.mode?.toUpperCase()}`, 20, 32);
-        doc.text(`Date: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`, 20, 40);
+        doc.text(`Player: ${activeName} (Player ${playerNumber})   |   Room: ${currentRoom}   |   Mode: ${latestReport.mode?.toUpperCase()}`, 20, 30);
+        doc.text(`Date: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}   |   Duration: ${latestReport.durationSeconds || 0}s`, 20, 38);
 
         // Result Card
         doc.setFillColor(245, 250, 247);
-        doc.roundedRect(20, 56, 170, 32, 4, 4, 'F');
+        doc.roundedRect(20, 54, 170, 30, 4, 4, 'F');
         doc.setDrawColor(199, 243, 107);
         doc.setLineWidth(0.8);
-        doc.roundedRect(20, 56, 170, 32, 4, 4, 'S');
+        doc.roundedRect(20, 54, 170, 30, 4, 4, 'S');
 
         doc.setTextColor(15, 39, 29);
-        doc.setFontSize(16);
+        doc.setFontSize(15);
         doc.setFont('helvetica', 'bold');
-        doc.text(`MATCH OUTCOME: ${latestReport.winner?.toUpperCase()} WINS`, 26, 68);
+        doc.text(`MATCH CHAMPION: ${latestReport.winner?.toUpperCase()}`, 26, 66);
 
-        doc.setFontSize(13);
+        doc.setFontSize(12);
         doc.setFont('helvetica', 'normal');
-        doc.text(`Score: Player 1 (${latestReport.score?.p1}) — (${latestReport.score?.p2}) Player 2/AI   |   Duration: ${latestReport.durationSeconds}s`, 26, 78);
+        const setsText = latestReport.roundsWon ? `Sets Won: ${p1Name} (${latestReport.roundsWon.p1}) - (${latestReport.roundsWon.p2}) ${p2Name}` : `Final Score: ${latestReport.score?.p1} - ${latestReport.score?.p2}`;
+        doc.text(`${setsText}   |   Longest Hit Rally: ${latestReport.longestRally || 0} shots`, 26, 76);
 
-        // Player Section
+        // Rounds Breakdown Table
         doc.setTextColor(13, 37, 28);
-        doc.setFontSize(16);
+        doc.setFontSize(14);
         doc.setFont('helvetica', 'bold');
-        doc.text(`Fitness & Performance Summary (Player ${playerNumber})`, 20, 102);
+        doc.text('Rounds Score Breakdown (First to 7 Points)', 20, 96);
 
-        // Stats Table
+        let roundY = 104;
+        if (latestReport.rounds && latestReport.rounds.length > 0) {
+          latestReport.rounds.forEach(r => {
+            doc.setFillColor(240, 247, 243);
+            doc.rect(20, roundY - 5, 170, 9, 'F');
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(11);
+            doc.setTextColor(20, 45, 35);
+            doc.text(`Round ${r.round}:`, 24, roundY);
+            doc.setFont('helvetica', 'normal');
+            doc.text(`${p1Name} ${r.p1Score} — ${r.p2Score} ${p2Name}  (${r.winner} Won)`, 60, roundY);
+            roundY += 10;
+          });
+        }
+
+        // Fitness Stats Section
+        const fitY = Math.max(roundY + 4, 130);
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(13, 37, 28);
+        doc.text(`Fitness & Performance Metrics: ${activeName}`, 20, fitY);
+
         const rows = [
           ['Active Energy Expended', `~${myStats.calories || 0} kcal`],
           ['Total Racket Swings', `${myStats.swings || 0} (${myStats.forehands || 0} Forehand, ${myStats.backhands || 0} Backhand)`],
-          ['Hit / Return Accuracy', `${myStats.accuracy || 0}% (${myStats.hits || 0} on-court returns)`],
+          ['Hit / Return Accuracy', `${myStats.accuracy || 0}% (${myStats.hits || 0} returns)`],
           ['Peak Swing Speed', `${myStats.peakSpeedKmh || 0} km/h (Peak Power: ${myStats.peakPower || 0}%)`],
           ['Average Swing Intensity', `${myStats.avgPower || 0}%`],
-          ['Longest Match Rally', `${latestReport.longestRally || 0} consecutive hits`],
           ['Cardio Zone Classification', `${myStats.intensity || 'Active Workout'}`]
         ];
 
-        let y = 112;
+        let tableY = fitY + 8;
         rows.forEach(([label, val], idx) => {
           doc.setFillColor(idx % 2 === 0 ? 245 : 255, 249, 246);
-          doc.rect(20, y - 6, 170, 10, 'F');
+          doc.rect(20, tableY - 5, 170, 9, 'F');
 
           doc.setFont('helvetica', 'normal');
-          doc.setFontSize(11);
+          doc.setFontSize(10.5);
           doc.setTextColor(60, 75, 68);
-          doc.text(label, 24, y);
+          doc.text(label, 24, tableY);
 
           doc.setFont('helvetica', 'bold');
           doc.setTextColor(13, 37, 28);
-          doc.text(val, 185, y, { align: 'right' });
-          y += 10;
+          doc.text(val, 185, tableY, { align: 'right' });
+          tableY += 9;
         });
 
         // Verification Footer
         doc.setDrawColor(200, 215, 205);
-        doc.line(20, 240, 190, 240);
-        doc.setFontSize(10);
+        doc.line(20, 250, 190, 250);
+        doc.setFontSize(9.5);
         doc.setFont('helvetica', 'italic');
         doc.setTextColor(120, 140, 130);
-        doc.text('Certified by Phone Tennis Motion Engine · Powered by WebSocket Relay', 20, 248);
-        doc.text('Download timestamp: ' + new Date().toISOString(), 20, 254);
+        doc.text('Certified by Phone Tennis Motion Engine · Powered by WebSocket Relay', 20, 258);
+        doc.text('Generated for ' + activeName + ' at ' + new Date().toISOString(), 20, 264);
 
         // Save PDF
-        doc.save(`PhoneTennis_Report_${currentRoom}_P${playerNumber}.pdf`);
+        doc.save(`PhoneTennis_Report_${currentRoom}_${activeName.replace(/\s+/g, '_')}.pdf`);
       });
     }());
   </script>
