@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Phone Tennis</title>
+  <style>
+    :root { color-scheme: dark; font: 16px system-ui,sans-serif; background:#10251d; color:#f5fff8 }
+    * { box-sizing:border-box }
+    body { margin:0; min-height:100vh; display:grid; place-items:center; }
+    main { width:min(100vw, 1100px); padding:16px }
+    header { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:0 8px }
+    h1 { margin:0; font-size:clamp(1.2rem,3vw,2rem) }
+    #status { color:#c7f36b }
+    canvas { display:block; width:100%; aspect-ratio:16/9; background:#236b4d; border:8px solid #c7f36b; border-radius:16px }
+    .help { color:#c5d9cc; text-align:center; margin:10px 0 0 }
+  </style>
+</head>
+<body><main>
+  <header><h1>PHONE TENNIS</h1><strong id="score">YOU 0 — 0 AI</strong><span id="status">Keyboard ready · F / B to swing</span></header>
+  <canvas id="court" width="960" height="540" aria-label="Tennis game"></canvas>
+  <p class="help">Swing with your phone, or press F for forehand and B for backhand. First to 5 wins.</p>
+</main>
+<script>
+(() => {
+  const canvas = document.getElementById('court'), ctx = canvas.getContext('2d');
+  const scoreEl = document.getElementById('score'), statusEl = document.getElementById('status');
+  const W=canvas.width,H=canvas.height, MY_Y=H-58, AI_Y=58, HIT_ZONE=120;
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  let ball={x:W/2,y:H/2,vx:3,vy:3}, me={x:W/2}, ai={x:W/2}, score={me:0,ai:0};
+  let stats={swings:0,hits:0,peak:0}, running=true, last=performance.now(), aiDelay=0, aiTarget=W/2, flash=0;
+  const params=new URLSearchParams(location.search), roomCode=(params.get('code')||'TEST').toUpperCase();
+  const scheme=location.protocol==='https:'?'wss:':'ws:'; let socket;
+  function connect(){
+    socket=new WebSocket(scheme+'//'+location.host);
+    socket.addEventListener('open',()=>{socket.send(JSON.stringify({type:'host',code:roomCode}));statusEl.textContent='Room '+roomCode+' · waiting for player';});
+    socket.addEventListener('message',e=>{let m;try{m=JSON.parse(e.data)}catch{return} if(m.type==='joined')statusEl.textContent='Player '+m.player+' connected!'; if(m.type==='swing')onSwing(m)});
+    socket.addEventListener('close',()=>{statusEl.textContent='Relay disconnected · keyboard still works';setTimeout(connect,1500)});
+  }
+  function onSwing(m){
+    if(!running)return;
+    const power=clamp(Number(m.power)||0,0,1), dir=m.dir==='forehand'?'forehand':'backhand';
+    stats.swings++;stats.peak=Math.max(stats.peak,power);flash=12;
+    if(ball.vy>0 && Math.abs(ball.y-MY_Y)<HIT_ZONE){ball.vy=-(5+7*power);ball.vx=(dir==='forehand'?1:-1)*(2+3*power)+(W/2-ball.x)*.01;stats.hits++;statusEl.textContent='Nice return!';}
+  }
+  window.onTennisSwing=onSwing;
+  window.addEventListener('keydown',e=>{if(e.repeat)return;if(e.key.toLowerCase()==='f')onSwing({power:.7,dir:'forehand'});if(e.key.toLowerCase()==='b')onSwing({power:.7,dir:'backhand'});});
+  function point(who){ score[who]++;scoreEl.textContent=`YOU ${score.me} — ${score.ai} AI`;running=score.me<5&&score.ai<5;statusEl.textContent=running?(who==='me'?'Point! Your serve.':'AI scores. Your serve.'):(score.me===5?'YOU WIN! Press Enter to play again':'AI WINS · Press Enter to play again');ball={x:W/2,y:H/2,vx:(Math.random()-.5)*3,vy:who==='me'?3:-3}; }
+  function reset(){score={me:0,ai:0};stats={swings:0,hits:0,peak:0};scoreEl.textContent='YOU 0 — 0 AI';running=true;statusEl.textContent='Game on!';ball={x:W/2,y:H/2,vx:2,vy:3};}
+  window.addEventListener('keydown',e=>{if(e.key==='Enter'&&!running)reset()});
+  function draw(now){
+    const dt=Math.min((now-last)/16.67,2);last=now;
+    ctx.clearRect(0,0,W,H);ctx.fillStyle='#236b4d';ctx.fillRect(0,0,W,H);
+    ctx.strokeStyle='rgba(255,255,255,.75)';ctx.lineWidth=3;ctx.strokeRect(90,30,W-180,H-60);ctx.beginPath();ctx.moveTo(90,H/2);ctx.lineTo(W-90,H/2);ctx.moveTo(W/2,30);ctx.lineTo(W/2,H-30);ctx.stroke();
+    if(running){ me.x+=clamp(ball.x-me.x,-6*dt,6*dt); aiDelay-=dt;if(aiDelay<=0){aiTarget=ball.x+(Math.random()-.5)*100;aiDelay=18+Math.random()*20}ai.x+=clamp(aiTarget-ai.x,-3.5*dt,3.5*dt);ball.x+=ball.vx*dt;ball.y+=ball.vy*dt;
+      if(ball.x<100||ball.x>W-100)ball.vx*=-1;
+      if(ball.vy<0&&ball.y<=AI_Y+18){ball.vy=Math.abs(ball.vy);ball.vx=clamp(ai.x-ball.x,-5,5)+(Math.random()-.5)*2;}
+      if(ball.y>MY_Y+20)point('ai'); if(ball.y<AI_Y-20)point('me');
+    }
+    ctx.fillStyle='#eaff8a';ctx.fillRect(me.x-42,MY_Y,84,14);ctx.fillStyle='#f3a65a';ctx.fillRect(ai.x-42,AI_Y,84,14);
+    ctx.fillStyle='#fff36b';ctx.beginPath();ctx.arc(ball.x,ball.y,11,0,Math.PI*2);ctx.fill();
+    if(flash>0){ctx.strokeStyle='rgba(255,255,255,'+(flash/18)+')';ctx.lineWidth=10;ctx.strokeRect(5,5,W-10,H-10);flash--;}
+    requestAnimationFrame(draw);
+  }
+  connect();requestAnimationFrame(draw);
+})();
+</script></body></html>

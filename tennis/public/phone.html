@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#10251d">
+  <title>Tennis Controller</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, -apple-system, sans-serif; }
+    * { box-sizing: border-box; }
+    body { min-height: 100vh; margin: 0; padding: 24px; background: #10251d; color: #f5fff8; display: flex; justify-content: center; }
+    main { width: min(100%, 520px); display: flex; flex-direction: column; gap: 18px; }
+    h1 { margin: 0; font-size: 1.8rem; }
+    #status { min-height: 1.5em; margin: 0; color: #b9ddc5; }
+    #start { min-height: 180px; border: 0; border-radius: 28px; background: #c7f36b; color: #17220e; font: 700 1.65rem system-ui, sans-serif; touch-action: manipulation; }
+    #start:active { transform: scale(.985); background: #b3e751; }
+    #start:disabled { opacity: .8; }
+    .readout { padding: 16px; border-radius: 16px; background: #1b382c; }
+    .readout strong { font-size: 1.8rem; font-variant-numeric: tabular-nums; }
+    #log { flex: 1; min-height: 150px; max-height: 32vh; overflow: auto; margin: 0; padding: 12px 12px 12px 34px; border-radius: 16px; background: #1b382c; }
+    #log li { padding: 5px 0; color: #d9eee0; font-variant-numeric: tabular-nums; }
+    .hint { margin: 0; color: #a9c4b2; font-size: .9rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Tennis Controller</h1>
+    <p id="status" role="status" aria-live="polite">Connecting…</p>
+    <button id="start" type="button">Tap to start</button>
+    <section class="readout" aria-live="polite">
+      Live motion magnitude: <strong id="magnitude">0.0</strong>
+      <div class="hint" id="threshold-label"></div>
+    </section>
+    <p class="hint">Hold your phone securely and swing it like a racket.</p>
+    <ol id="log" aria-label="Recent swings"></ol>
+  </main>
+
+  <script>
+    (function () {
+      // Change this single axis if calibration shows another rotation axis works better.
+      var DIRECTION_AXIS = 'alpha';
+      var MIN_SWING_GAP_MS = 400;
+      var GRAVITY = 9.8;
+
+      var params = new URLSearchParams(window.location.search);
+      var code = params.get('code') || '';
+      var requestedThreshold = Number(params.get('t'));
+      var threshold = params.has('t') && isFinite(requestedThreshold) && requestedThreshold > 0
+        ? requestedThreshold
+        : 15;
+      var status = document.getElementById('status');
+      var startButton = document.getElementById('start');
+      var magnitudeOutput = document.getElementById('magnitude');
+      var thresholdLabel = document.getElementById('threshold-label');
+      var log = document.getElementById('log');
+      var socket = null;
+      var reconnectTimer = null;
+      var reconnectDelay = 500;
+      var lastSwingAt = 0;
+      var listening = false;
+      var wakeLock = null;
+      var playerNumber = null;
+
+      thresholdLabel.textContent = 'Swing threshold: ' + threshold.toFixed(1) + (params.has('t') ? ' (from URL)' : '');
+
+      function setStatus(message) {
+        status.textContent = message;
+      }
+
+      function connect() {
+        if (!code) {
+          setStatus('Add ?code=ROOM to this page URL to join a room.');
+          return;
+        }
+        if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
+
+        var scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        socket = new WebSocket(scheme + '//' + window.location.host);
+        setStatus('Connecting to room ' + code.toUpperCase() + '…');
+
+        socket.addEventListener('open', function () {
+          reconnectDelay = 500;
+          socket.send(JSON.stringify({ type: 'join', code: code }));
+        });
+        socket.addEventListener('message', function (event) {
+          var message;
+          try { message = JSON.parse(event.data); } catch (_error) { return; }
+          if (message.type === 'joined') {
+            playerNumber = message.player;
+            setStatus('Connected as Player ' + playerNumber);
+          } else if (message.type === 'error') {
+            playerNumber = null;
+            setStatus('Room ' + code.toUpperCase() + ' was not found. Check the code and reconnect.');
+          }
+        });
+        socket.addEventListener('close', function () {
+          playerNumber = null;
+          setStatus('Connection lost. Reconnecting…');
+          scheduleReconnect();
+        });
+        socket.addEventListener('error', function () {
+          setStatus('WebSocket connection problem. Reconnecting…');
+        });
+      }
+
+      function scheduleReconnect() {
+        if (reconnectTimer || !code) return;
+        reconnectTimer = window.setTimeout(function () {
+          reconnectTimer = null;
+          connect();
+          reconnectDelay = Math.min(reconnectDelay * 2, 5000);
+        }, reconnectDelay);
+      }
+
+      function requestWakeLock() {
+        if (!('wakeLock' in navigator) || document.visibilityState === 'hidden') return;
+        navigator.wakeLock.request('screen').then(function (lock) {
+          wakeLock = lock;
+          wakeLock.addEventListener('release', function () { wakeLock = null; });
+        }).catch(function () {
+          // Wake locks are optional; the controller remains usable without one.
+        });
+      }
+
+      function vectorMagnitude(vector) {
+        if (!vector || typeof vector.x !== 'number' || typeof vector.y !== 'number' || typeof vector.z !== 'number') return null;
+        return Math.sqrt(vector.x * vector.x + vector.y * vector.y + vector.z * vector.z);
+      }
+
+      function getMagnitude(event) {
+        var magnitude = vectorMagnitude(event.acceleration);
+        if (magnitude !== null) return magnitude;
+        magnitude = vectorMagnitude(event.accelerationIncludingGravity);
+        return magnitude === null ? 0 : Math.max(0, magnitude - GRAVITY);
+      }
+
+      function prependSwing(text) {
+        var item = document.createElement('li');
+        item.textContent = text;
+        log.insertBefore(item, log.firstChild);
+        while (log.children.length > 20) log.removeChild(log.lastChild);
+      }
+
+      function handleMotion(event) {
+        var magnitude = getMagnitude(event);
+        magnitudeOutput.textContent = magnitude.toFixed(1);
+        var now = Date.now();
+        if (magnitude <= threshold || now - lastSwingAt < MIN_SWING_GAP_MS) return;
+        lastSwingAt = now;
+
+        var rotation = event.rotationRate || {};
+        var direction = rotation[DIRECTION_AXIS] > 0 ? 'forehand' : 'backhand';
+        var power = Math.min(magnitude / 40, 1);
+        var message = { type: 'swing', power: power, dir: direction };
+        if (socket && socket.readyState === WebSocket.OPEN && playerNumber !== null) {
+          socket.send(JSON.stringify(message));
+        }
+        if (navigator.vibrate) navigator.vibrate(40);
+        prependSwing(direction + ' · power ' + power.toFixed(2) + ' · ' + magnitude.toFixed(1));
+      }
+
+      startButton.addEventListener('click', async function () {
+        if (!listening) {
+          if (typeof DeviceMotionEvent === 'undefined') {
+            setStatus('Motion sensors are not available in this browser.');
+            return;
+          }
+          if (typeof DeviceMotionEvent.requestPermission === 'function') {
+            try {
+              var permission = await DeviceMotionEvent.requestPermission();
+              if (permission !== 'granted') {
+                setStatus('Motion permission was denied. Allow motion access and tap to start again.');
+                return;
+              }
+            } catch (_error) {
+              setStatus('Could not request motion permission. Check browser settings and try again.');
+              return;
+            }
+          }
+          window.addEventListener('devicemotion', handleMotion);
+          listening = true;
+          startButton.textContent = 'Swing enabled';
+          startButton.disabled = true;
+          setStatus(playerNumber === null ? 'Motion enabled. Waiting for room connection…' : 'Connected as Player ' + playerNumber);
+        }
+        requestWakeLock();
+      });
+
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'visible' && listening) requestWakeLock();
+      });
+
+      connect();
+    }());
+  </script>
+</body>
+</html>

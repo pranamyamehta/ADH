@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tennis Relay Test Host</title>
+  <style>
+    body { margin: 2rem; background: #101820; color: #f4f7f8; font: 16px system-ui, sans-serif; }
+    h1 { margin-top: 0; }
+    #status { color: #9ce6a7; }
+    #messages { padding-left: 1.25rem; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>Tennis relay test host</h1>
+  <p>Room code: <strong>TEST</strong></p>
+  <p id="status">Connecting…</p>
+  <ul id="messages" aria-live="polite"></ul>
+  <script>
+    const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const socket = new WebSocket(`${scheme}//${location.host}`);
+    const status = document.getElementById('status');
+    const messages = document.getElementById('messages');
+
+    socket.addEventListener('open', () => {
+      status.textContent = 'Connected. Hosting TEST.';
+      socket.send(JSON.stringify({ type: 'host', code: 'TEST' }));
+    });
+    socket.addEventListener('message', (event) => {
+      const item = document.createElement('li');
+      item.textContent = event.data;
+      messages.prepend(item);
+    });
+    socket.addEventListener('close', () => {
+      status.textContent = 'Disconnected.';
+    });
+    socket.addEventListener('error', () => {
+      status.textContent = 'WebSocket connection error.';
+    });
+  </script>
+</body>
+</html>
